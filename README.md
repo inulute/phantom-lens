@@ -8,6 +8,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-teal?style=for-the-badge&logo=windowsterminal&logoColor=white&labelColor=2C3E50)](https://github.com/inulute/phantom-lens)
 
 
+
 <img src="./public/phantom-ai-small.png" alt="PhantomLens" width="150px">
 
 </div>
@@ -78,3 +79,7 @@ PhantomLens works like a master knowledge thief - stealthily acquiring valuable 
   <img src="https://raw.githubusercontent.com/inulute/perplexity-ai-app/main/assets/icons/svg/inulute.svg" alt="Inulute" width="70px">
 
 </div>
+
+  <a href="https://github.com/inulute/phantom-lens">
+    <img src="https://komarev.com/ghpvc/?username=inulute&repo=phantom-lens&label=Repo%20Views&color=olive&style=pixel&logo=github&abbreviated=true" alt="phantom-lens views" />
+  </a>
