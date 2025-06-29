@@ -9,7 +9,7 @@
 
 
 
-<img src="./public/phantom-ai-small.png" alt="PhantomLens" width="150px">
+<img src="./public/PhantomLens-nobg.svg" alt="PhantomLens" width="250px">
 
 </div>
 
