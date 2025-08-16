@@ -4,7 +4,7 @@
 
 ## 🔍 SEE BEYOND. KNOW MORE.
 
-[![Status: Launching Soon](https://img.shields.io/badge/Status-Launching%20Soon-blueviolet?style=for-the-badge&logo=rocket&logoColor=white&labelColor=2B213A)](https://github.com/inulute/phantom-lens)
+[![Expected: 18 August 2025](https://img.shields.io/badge/Expected%20_18-Aug-blueviolet?style=for-the-badge&logo=rocket&logoColor=white&labelColor=2B213A)](https://phantomlens.inulute.com)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-teal?style=for-the-badge&logo=windowsterminal&logoColor=white&labelColor=2C3E50)](https://github.com/inulute/phantom-lens)
 
 
