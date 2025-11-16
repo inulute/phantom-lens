@@ -1,0 +1,384 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  /* Default body styling - commented out to allow click-through control */
+  /* body {
+    @apply bg-background text-foreground;
+  } */
+  
+  /* ============================================================================ */
+  /* CLICK-THROUGH FUNCTIONALITY CSS */
+  /* ============================================================================ */
+  
+  /* Base transparent background for click-through */
+  html, body {
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  
+  /* Click-through mode - body passes through but elements can override */
+  body.click-through-mode {
+    pointer-events: none;
+    background: transparent;
+  }
+  
+  /* Interactive mode - everything works normally but keep transparent */
+  body.interactive-mode {
+    pointer-events: auto;
+    background: transparent;
+    @apply text-foreground;
+  }
+  
+  /* Force specific elements to be interactive even in click-through mode */
+  .interactive-element {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 1000;
+  }
+  
+  /* Interactive zones for controls */
+  .interactive-zone {
+    pointer-events: auto !important;
+    @apply bg-background/80 backdrop-blur-sm rounded-lg;
+  }
+  
+  /* Overlay content that should be visible but click-through */
+  .overlay-content {
+    pointer-events: none;
+    @apply text-foreground;
+  }
+  
+  /* Status display that's visible but click-through */
+  .status-overlay {
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    @apply text-foreground;
+  }
+  
+  /* Control panels that can be made interactive */
+  .control-panel {
+    pointer-events: auto;
+    @apply bg-card/90 backdrop-blur-md border border-border rounded-lg p-4 shadow-lg;
+    @apply text-card-foreground;
+  }
+  
+  /* Hover zones for revealing controls */
+  .hover-zone {
+    pointer-events: auto;
+    position: relative;
+  }
+  
+  .hover-zone .hidden-controls {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+  }
+  
+  .hover-zone:hover .hidden-controls {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
+  /* Floating action buttons that are always interactive */
+  .floating-action {
+    pointer-events: auto !important;
+    position: fixed;
+    z-index: 9999;
+    @apply bg-primary text-primary-foreground rounded-full p-3 shadow-lg;
+    @apply hover:bg-primary/90 transition-colors;
+  }
+  
+  /* Response/followup content styling */
+  .response-content {
+    @apply bg-background/50 backdrop-blur-md text-foreground;
+    @apply border border-border rounded-lg;
+  }
+  
+  /* Loading states */
+  .loading-overlay {
+    pointer-events: none;
+    @apply text-muted-foreground;
+  }
+  
+  /* Error states */
+  .error-display {
+    @apply bg-destructive/10 border border-destructive/20 text-destructive-foreground;
+  }
+  
+  /* ============================================================================ */
+  /* VIEW-SPECIFIC STYLING */
+  /* ============================================================================ */
+  
+  /* Initial view - mostly click-through */
+  body.view-initial {
+    pointer-events: none;
+    background: transparent;
+  }
+  
+  body.view-initial .interactive-element {
+    pointer-events: auto;
+  }
+  
+  /* Response view - interactive but transparent */
+  body.view-response {
+    pointer-events: auto;
+    background: transparent;
+    @apply text-foreground;
+  }
+  
+  /* Followup view - interactive but transparent */
+  body.view-followup {
+    pointer-events: auto;
+    background: transparent;
+    @apply text-foreground;
+  }
+  
+  /* ============================================================================ */
+  /* COMPONENT-SPECIFIC STYLING */
+  /* ============================================================================ */
+  
+  /* Commands component */
+  .commands-container {
+    @apply relative z-10;
+    pointer-events: auto;
+  }
+  
+  .commands-container.interactive {
+    @apply pointer-events-auto;
+  }
+  
+  /* FIXED: Ensure commands don't block other elements when minimal */
+  .commands-container:has(.minimal-content) {
+    @apply pointer-events-none;
+  }
+  
+  .commands-container:has(.minimal-content) .interactive-element {
+    @apply pointer-events-auto;
+  }
+  
+  /* Markdown content */
+  .markdown-content {
+    @apply text-foreground;
+  }
+  
+  /* Screenshot previews */
+  .screenshot-preview {
+    @apply border border-border rounded-md;
+  }
+  
+  /* Tooltips */
+  .tooltip {
+    @apply bg-popover text-popover-foreground border border-border rounded-md px-2 py-1 text-sm;
+    @apply shadow-lg z-50;
+  }
+  
+  /* ============================================================================ */
+  /* UTILITY CLASSES */
+  /* ============================================================================ */
+  
+  /* Force click-through */
+  .click-through {
+    pointer-events: none !important;
+  }
+  
+  /* Force interactive */
+  .force-interactive {
+    pointer-events: auto !important;
+  }
+  
+  /* Glass effect */
+  .glass {
+    @apply bg-background/20 backdrop-blur-md border border-border/20;
+  }
+  
+  /* Overlay backgrounds */
+  .overlay-bg {
+    @apply bg-background/80 backdrop-blur-sm;
+  }
+  
+  /* Smooth transitions */
+  .smooth-transition {
+    transition: all 0.2s ease-in-out;
+  }
+  
+  /* ============================================================================ */
+  /* SCROLLBAR STYLING */
+  /* ============================================================================ */
+  
+  /* Custom scrollbar with translucent colors */
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+  }
+  
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+  }
+  
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
+  
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+}
+
+/* ============================================================================ */
+/* RESPONSIVE DESIGN */
+/* ============================================================================ */
+
+@media (max-width: 768px) {
+  .control-panel {
+    @apply p-2 text-sm;
+  }
+  
+  .floating-action {
+    @apply p-2;
+  }
+}
+
+/* ============================================================================ */
+/* ANIMATIONS */
+/* ============================================================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Tooltip scrollbar styles */
+.tooltip-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.tooltip-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+.tooltip-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+.tooltip-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Tooltip container styles - ensure proper height constraints and scrolling */
+.tooltip-container {
+  /* FIXED: Allow height constraints for proper sizing */
+  height: auto !important;
+  overflow: hidden !important; /* Hide overflow at container level */
+  position: fixed !important;
+  z-index: 99999 !important;
+  /* FIXED: Ensure tooltip is never clipped or constrained */
+  clip: auto !important;
+  clip-path: none !important;
+  transform: none !important;
+  /* FIXED: Force tooltip to be independent of any parent container */
+  contain: none !important;
+  isolation: isolate !important;
+  /* FIXED: Allow width constraints for proper sizing */
+  max-width: none !important;
+  min-width: none !important;
+  /* FIXED: Prevent manual resizing */
+  resize: none !important;
+  user-select: none !important;
+}
+
+/* FIXED: Prevent manual window resizing - disable resize handles */
+html, body {
+  resize: none !important;
+  overflow: hidden !important;
+}
+
+/* FIXED: Prevent any element from being manually resizable */
+* {
+  resize: none !important;
+}
+
+/* FIXED: Ensure main window content cannot be manually resized */
+#root, .app-container {
+  resize: none !important;
+  overflow: hidden !important;
+}

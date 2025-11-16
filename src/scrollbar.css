@@ -1,0 +1,90 @@
+/* Dark gray sleek scrollbar styles for response container */
+#responseContainer::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+#responseContainer::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  margin: 4px;
+}
+
+#responseContainer::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+#responseContainer::-webkit-scrollbar-thumb:hover {
+  background: #606060;
+}
+
+#responseContainer::-webkit-scrollbar-thumb:active {
+  background: #333333;
+}
+
+/* For Firefox */
+#responseContainer {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+}
+
+/* Hide scrollbar buttons */
+#responseContainer::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Corner where scrollbars meet */
+#responseContainer::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Code block horizontal scrollbar styles */
+.code-block-scroll::-webkit-scrollbar,
+pre::-webkit-scrollbar,
+pre code::-webkit-scrollbar,
+pre div::-webkit-scrollbar {
+  height: 8px;
+}
+
+.code-block-scroll::-webkit-scrollbar-track,
+pre::-webkit-scrollbar-track,
+pre code::-webkit-scrollbar-track,
+pre div::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin: 4px;
+}
+
+.code-block-scroll::-webkit-scrollbar-thumb,
+pre::-webkit-scrollbar-thumb,
+pre code::-webkit-scrollbar-thumb,
+pre div::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.code-block-scroll::-webkit-scrollbar-thumb:hover,
+pre::-webkit-scrollbar-thumb:hover,
+pre code::-webkit-scrollbar-thumb:hover,
+pre div::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.code-block-scroll::-webkit-scrollbar-thumb:active,
+pre::-webkit-scrollbar-thumb:active,
+pre code::-webkit-scrollbar-thumb:active,
+pre div::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* For Firefox - code block scrollbars */
+.code-block-scroll,
+pre,
+pre code,
+pre div {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+}
