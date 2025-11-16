@@ -2,32 +2,66 @@
 
 # PhantomLens Open Source Cluely Alternative
 
-## 🔍 SEE BEYOND. KNOW MORE.
+## Your Covert AI Weapon.
 
-[![Expected: 18 August 2025](https://img.shields.io/badge/Expected%20_18-Aug-blueviolet?style=for-the-badge&logo=rocket&logoColor=white&labelColor=2B213A)](https://phantomlens.inulute.com)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-teal?style=for-the-badge&logo=windowsterminal&logoColor=white&labelColor=2C3E50)](https://github.com/inulute/phantom-lens)
+[![Download Now](https://img.shields.io/badge/Download%20Now-Available-success?style=for-the-badge&logo=download&logoColor=white&labelColor=2B213A)](https://github.com/inulute/phantom-lens/releases)
+[![Website](https://img.shields.io/badge/Website-Visit-blue?style=for-the-badge&logo=globe&logoColor=white&labelColor=1E88E5)](https://phantomlens.inulute.com)
+[![Platform](https://img.shields.io/badge/Platform-Windows-teal?style=for-the-badge&logo=windows&logoColor=white&labelColor=2C3E50)](https://github.com/inulute/phantom-lens)
 
 
 
-<img src="./public/PhantomLens-nobg.svg" alt="PhantomLens" width="250px">
+<img src="./public/assets/icons/phantomlens_logo.svg" alt="PhantomLens" width="250px">
 
 </div>
 
-**The open-source, privacy-focused AI lens that works invisibly across your screen**
+**The open-source, privacy-focused AI Assistant that works invisibly across your screen**
 
-PhantomLens is an advanced, undetectable AI assistant that helps you with any on-screen task while respecting your privacy. Unlike commercial alternatives, PhantomLens is free, open-source, and puts your privacy first.
+PhantomLens is an advanced, undetectable AI assistant that helps you with any on-screen task while respecting your privacy. Unlike commercial alternatives, PhantomLens is free, open-source and puts your privacy first.
+
+## 📥 Download
+
+PhantomLens is now available for download! Get the latest version for Windows:
+
+**[Download from GitHub Releases →](https://github.com/inulute/phantom-lens/releases)**
+
+> **Note:** Currently, PhantomLens is available for Windows only. macOS and Linux versions are coming soon!
 
 ## 🌟 Features
 
-- **Truly Invisible**: Operates like a master thief - acquiring knowledge without leaving a trace in recordings or calls
-- **Context-Aware**: Sees what application you're using and tailors responses accordingly
-- **Interview Mode**: Specialized assistance for job interviews with structured answer frameworks
-- **Multi-Modal**: Analyzes both screen content and audio (coming soon)
+- **Truly Invisible**: Operates like a master thief - acquiring knowledge without leaving a trace in iykyk....
+- **Context-Aware**: Sees what application you're using and tailors responses accordingly.
 - **Open Source**: Transparent codebase you can inspect, modify, and trust
+
+## ⌨️ Keyboard Shortcuts
+
+PhantomLens comes with powerful keyboard shortcuts to help you work efficiently. Here are the available shortcuts:
+
+### Global Shortcuts (Work anywhere)
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl + \` | Show/Hide PhantomLens window |
+
+### Application Shortcuts (When window is visible)
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl + Enter` | Take screenshot and process |
+| `Ctrl + R` | Reset/Cancel current operation |
+| `Ctrl + ←→↑↓` | Move window (left, right, up, down) |
+| `Alt + ↑↓` | Scroll response content |
+| `Alt + ←→` | Scroll code blocks |
+| `Ctrl + Shift + ↑↓` | Navigate history (previous/next) |
+| `Ctrl + ,` | Open settings |
+| `Ctrl + Shift + ,` | Enable interactive settings mode |
+| `Ctrl + Q` | Quit application |
+| `Ctrl + Shift + R` | Emergency window recovery |
+
+> **Tip:** The global shortcut `Ctrl + \` works from anywhere on your system, even when PhantomLens is hidden. Use it to quickly toggle the window visibility!
 
 ## 🔄 How PhantomLens Differs from Cluely
 
-|                       | PhantomLens | Cluely |
+|                       | PhantomLens | Others |
 |-----------------------|---------|--------|
 | **Privacy**           | ✅ Fully private, data stays local | ❌ Sends data to their servers |
 | **Price**             | ✅ Free and open-source | ❌ Subscription-based |
@@ -75,6 +109,12 @@ PhantomLens works like a master knowledge thief - stealthily acquiring valuable 
 
 ---
 
+## 🙏 Acknowledgments
+
+Built with the initial codebase from [Jaden Park](https://github.com/jadenpxrk).
+
+---
+
 <div align="center">
   <img src="https://raw.githubusercontent.com/inulute/perplexity-ai-app/main/assets/icons/svg/inulute.svg" alt="Inulute" width="70px">
 
@@ -83,3 +123,6 @@ PhantomLens works like a master knowledge thief - stealthily acquiring valuable 
   <a href="https://github.com/inulute/phantom-lens">
     <img src="https://komarev.com/ghpvc/?username=inulute&repo=phantom-lens&label=Repo%20Views&color=olive&style=pixel&logo=github&abbreviated=true" alt="phantom-lens views" />
   </a>
+
+---
+
