@@ -56,6 +56,7 @@ PhantomLens comes with powerful keyboard shortcuts to help you work efficiently.
 | `Ctrl + Shift + ,` | Enable interactive settings mode |
 | `Ctrl + Q` | Quit application |
 | `Ctrl + Shift + R` | Emergency window recovery |
+| `Ctrl + Shift + V` | Transparent mode |
 
 > **Tip:** The global shortcut `Ctrl + \` works from anywhere on your system, even when PhantomLens is hidden. Use it to quickly toggle the window visibility!
 
