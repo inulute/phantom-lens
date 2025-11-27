@@ -1,6 +1,6 @@
 {
   "name": "phantomlens",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "clean": "rimraf dist dist-electron",
