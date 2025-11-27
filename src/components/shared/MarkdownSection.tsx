@@ -1,9 +1,35 @@
+import { useEffect, useState } from "react";
 import ThinkingIndicator from "./ThinkingIndicator";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
+
+// Hook to track transparency mode
+function useTransparencyMode() {
+  const [isTransparent, setIsTransparent] = useState(false);
+
+  useEffect(() => {
+    const checkTransparency = () => {
+      setIsTransparent(document.body.classList.contains('transparent-mode'));
+    };
+
+    // Initial check
+    checkTransparency();
+
+    // Watch for class changes
+    const observer = new MutationObserver(checkTransparency);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isTransparent;
+}
 
 const transparentOneDark: Record<string, any> = Object.entries(oneDark).reduce(
   (acc, [selector, style]) => {
@@ -20,6 +46,8 @@ export const MarkdownSection = ({
   content: string | null;
   isLoading: boolean;
 }) => {
+  const isTransparent = useTransparencyMode();
+
   return (
     <div className="space-y-2">
       {isLoading && !content ? (
@@ -58,15 +86,27 @@ export const MarkdownSection = ({
               ),
               table: ({ node, ...props }) => (
                 <div className="overflow-x-auto my-4">
-                  <table className="min-w-full border border-white/20 rounded-lg" {...props} />
+                  <table 
+                    className={`min-w-full rounded-lg ${isTransparent ? 'border-transparent' : 'border border-white/20'}`}
+                    style={isTransparent ? { border: 'none' } : {}}
+                    {...props} 
+                  />
                 </div>
               ),
               thead: ({ node, ...props }) => (
-                <thead className="bg-white/10" {...props} />
+                <thead 
+                  className={isTransparent ? '' : 'bg-white/10'} 
+                  style={isTransparent ? { background: 'transparent' } : {}}
+                  {...props} 
+                />
               ),
               tbody: ({ node, ...props }) => <tbody {...props} />,
               tr: ({ node, ...props }) => (
-                <tr className="border-b border-white/20" {...props} />
+                <tr 
+                  className={isTransparent ? '' : 'border-b border-white/20'}
+                  style={isTransparent ? { borderBottom: 'none' } : {}}
+                  {...props} 
+                />
               ),
               th: ({ node, ...props }) => (
                 <th
@@ -75,11 +115,16 @@ export const MarkdownSection = ({
                 />
               ),
               td: ({ node, ...props }) => (
-                <td className="px-4 py-3 border-r border-white/20 last:border-r-0 text-white/80" {...props} />
+                <td 
+                  className={`px-4 py-3 text-white/80 ${isTransparent ? '' : 'border-r border-white/20 last:border-r-0'}`}
+                  style={isTransparent ? { borderRight: 'none' } : {}}
+                  {...props} 
+                />
               ),
               pre: ({ node, ...props }) => (
                 <pre
-                  className="overflow-x-auto rounded-lg text-white/90 text-sm whitespace-pre bg-white/10 p-4 border border-white/20 code-block-scroll mb-4"
+                  className={`overflow-x-auto rounded-lg text-white/90 text-sm whitespace-pre p-4 code-block-scroll mb-4 ${isTransparent ? '' : 'bg-white/10 border border-white/20'}`}
+                  style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
                   {...props}
                 />
               ),
@@ -102,7 +147,11 @@ export const MarkdownSection = ({
                     {String(children).replace(/\n$/, "")}
                   </SyntaxHighlighter>
                 ) : (
-                  <code className="font-mono text-sm bg-white/10 px-2 py-1 rounded text-white/90" {...props}>
+                  <code 
+                    className={`font-mono text-sm px-2 py-1 rounded text-white/90 ${isTransparent ? '' : 'bg-white/10'}`}
+                    style={isTransparent ? { background: 'transparent' } : {}}
+                    {...props}
+                  >
                     {children}
                   </code>
                 );

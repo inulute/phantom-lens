@@ -5,7 +5,11 @@ import { app } from "electron";
 import * as fs from "fs";
 import { secureConfig } from "./config";
 import { updateService } from "./UpdateService";
+import { getAppOpenCount, resetAppOpenCount } from "./UsageCounter";
 
+// ============================================================================
+// Enhanced Error Handling Wrapper
+// ============================================================================
 interface IpcResponse<T = any> {
   success: boolean;
   data?: T;
@@ -48,9 +52,16 @@ function createSafeIpcHandler<T extends any[], R>(
   };
 }
 
+// ============================================================================
+// FIXED: NO MORE BATCHING - Direct dimension updates only
+// ============================================================================
+
 export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
   console.log("FIXED: Initializing IPC handlers with DIRECT dimension updates (NO BATCHING)");
 
+  // ============================================================================
+  // API Configuration Handlers
+  // ============================================================================
   ipcMain.handle("get-api-config", createSafeIpcHandler(async () => {
     try {
       const apiKey = await getStoreValue("api-key");
@@ -77,6 +88,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     try {
       const { apiKey, model } = config;
 
+      // Enhanced validation
       if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
         return { success: false, error: "Invalid API key provided" };
       }
@@ -85,20 +97,19 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
         return { success: false, error: "Invalid model selection" };
       }
 
+      // Validate model format for Gemini
       const validGeminiModels = [
-        "gemini-1.5-pro",
-        "gemini-1.5-flash", 
-        "gemini-2.0-flash",
+        "gemini-3-pro-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
-        "gemini-pro",
-        "gemini-pro-vision"
+        "gemini-2.0-flash"
       ];
 
       if (!validGeminiModels.includes(model.trim())) {
         console.warn(`Unknown model selected: ${model}`);
       }
 
+      // Store the configuration
       const [successKey, successModel] = await Promise.all([
         setStoreValue("api-key", apiKey.trim()),
         setStoreValue("api-model", model.trim())
@@ -112,10 +123,12 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
         };
       }
 
+      // Set environment variables
       process.env.API_KEY = apiKey.trim();
       process.env.API_MODEL = model.trim();
       process.env.API_PROVIDER = "gemini";
 
+      // Notify that the config has been updated
       const mainWindow = deps.getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("api-key-updated");
@@ -130,6 +143,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "set-api-config"));
 
+  // ============================================================================
+  // Usage Counter Handlers
+  // ============================================================================
   ipcMain.handle("get-app-open-count", createSafeIpcHandler(async () => {
     try {
       const count = await getAppOpenCount();
@@ -185,6 +201,10 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "reset-app-open-count"));
 
+  // ============================================================================
+  // GitHub Release Update Check Handler
+  // ============================================================================
+  
   ipcMain.handle("check-github-update", createSafeIpcHandler(async () => {
     try {
       const result = await updateService.checkForUpdates();
@@ -204,6 +224,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
       };
     } catch (error: any) {
       console.error("Error checking GitHub update:", error);
+      // Don't fail silently - return current version info
       return { 
         success: true, 
         data: { 
@@ -220,6 +241,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "check-github-update"));
 
+  // Open update download URL
   ipcMain.handle("open-update-download", createSafeIpcHandler(async (
     _event: any,
     url?: string
@@ -238,6 +260,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "open-update-download"));
 
+  // ============================================================================
+  // Screenshot Management Handlers
+  // ============================================================================
   ipcMain.handle("get-screenshot-queue", createIpcHandler(() => {
     const queue = deps.getScreenshotQueue();
     console.log(`Retrieved screenshot queue: ${queue.length} items`);
@@ -277,6 +302,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "get-screenshots"));
 
+  // ============================================================================
+  // Screenshot Capture Handlers
+  // ============================================================================
   ipcMain.handle("trigger-screenshot", createSafeIpcHandler(async () => {
     const mainWindow = deps.getMainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -286,6 +314,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     try {
       const screenshotPath = await deps.takeScreenshot();
       
+      // Notify UI immediately
       mainWindow.webContents.send("screenshot-taken", {
         path: screenshotPath,
       });
@@ -315,6 +344,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "take-screenshot"));
 
+  // ============================================================================
+  // Processing Handlers
+  // ============================================================================
   ipcMain.handle("process-screenshots", createSafeIpcHandler(async () => {
     if (!deps.processingHelper) {
       return { success: false, error: "Processing helper not available" };
@@ -351,6 +383,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "trigger-process-screenshots"));
 
+  // ===================== Follow-up Processing IPC =====================
   ipcMain.handle("process-follow-up", createSafeIpcHandler(async () => {
     try {
       if (!deps.processingHelper) {
@@ -664,10 +697,14 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "emergency-visibility-recovery"));
 
+  // ============================================================================
+  // Application Control Handlers
+  // ============================================================================
   ipcMain.handle("quit-application", createSafeIpcHandler(async () => {
     try {
       console.log("[IPC-FIXED] Quit application requested via IPC");
       
+      // Give time for IPC response to be sent
       setTimeout(() => {
         deps.quitApplication();
       }, 100);
@@ -682,6 +719,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "quit-application"));
 
+  // ============================================================================
+  // Store Management Handlers
+  // ============================================================================
   ipcMain.handle("get-store-value", createSafeIpcHandler(async (
     _event: any,
     key: string
@@ -729,6 +769,10 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "set-store-value"));
 
+  // ============================================================================
+  // CRITICAL FIX: Safe Mouse Event Handlers (NO FORWARDING)
+  // ============================================================================
+  
   ipcMain.handle("set-ignore-mouse-events", createSafeIpcHandler(() => {
     try {
       const mainWindow = deps.getMainWindow();
@@ -736,8 +780,10 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
         return { success: false, error: "Main window not available" };
       }
 
+      // CRITICAL: Remove { forward: true } option to prevent system freezing
       mainWindow.setIgnoreMouseEvents(true);
       console.log("[IPC-FIXED] Mouse events set to ignore (click-through) - NO FORWARDING");
+      deps.disableInteractiveOverride();
       return { success: true, data: "Mouse events set to ignore" };
     } catch (error: any) {
       console.error("Error setting ignore mouse events:", error);
@@ -757,6 +803,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
 
       mainWindow.setIgnoreMouseEvents(false);
       console.log("[IPC-FIXED] Mouse events set to interactive");
+      deps.enableInteractiveOverride();
       return { success: true, data: "Mouse events set to interactive" };
     } catch (error: any) {
       console.error("Error setting interactive mouse events:", error);
@@ -767,6 +814,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "set-interactive-mouse-events"));
 
+  // Safe alternative mouse event handlers
   ipcMain.handle("enable-safe-click-through", createSafeIpcHandler(() => {
     try {
       const mainWindow = deps.getMainWindow();
@@ -775,6 +823,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
       }
       mainWindow.setIgnoreMouseEvents(true);
       console.log("[IPC-FIXED] Safe click-through mode enabled");
+      deps.disableInteractiveOverride();
       return { success: true, data: "Safe click-through enabled" };
     } catch (error: any) {
       console.error("Error enabling safe click-through:", error);
@@ -794,6 +843,7 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
       mainWindow.setIgnoreMouseEvents(false);
       mainWindow.setFocusable(true);
       console.log("[IPC-FIXED] Interactive mode restored");
+      deps.enableInteractiveOverride();
       return { success: true, data: "Interactive mode restored" };
     } catch (error: any) {
       console.error("Error restoring interactive mode:", error);
@@ -828,6 +878,9 @@ export function initializeIpcHandlers(deps: initializeIpcHandlerDeps): void {
     }
   }, "emergency-mouse-recovery"));
 
+  // ============================================================================
+  // Settings Window Handler
+  // ============================================================================
   ipcMain.handle("open-settings", createSafeIpcHandler(async () => {
     try {
       const mainWindow = deps.getMainWindow();

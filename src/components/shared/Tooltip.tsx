@@ -2,12 +2,44 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 
+// Hook to track transparency mode
+function useTransparencyMode() {
+  const [isTransparent, setIsTransparent] = useState(false);
+
+  useEffect(() => {
+    const checkTransparency = () => {
+      setIsTransparent(document.body.classList.contains('transparent-mode'));
+    };
+
+    // Initial check
+    checkTransparency();
+
+    // Watch for class changes
+    const observer = new MutationObserver(checkTransparency);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isTransparent;
+}
+
 interface TooltipProps {
   trigger: React.ReactNode;
   onVisibilityChange?: (visible: boolean, height: number) => void;
 }
 
+// FIXED: Updated model options to match backend support
 const MODEL_OPTIONS = [
+  {
+    id: "gemini-3-pro-preview",
+    name: "Gemini 3 Pro (Preview)",
+    description: "Latest Gemini 3 preview model for top-tier reasoning",
+    default: true,
+  },
   {
     id: "gemini-2.5-pro",
     name: "Gemini 2.5 Pro",
@@ -17,22 +49,11 @@ const MODEL_OPTIONS = [
     id: "gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
     description: "Fast and efficient Gemini model (Google)",
-    default: true,
   },
   {
     id: "gemini-2.0-flash",
     name: "Gemini 2.0 Flash",
     description: "Latest Gemini 2.0 model (Google)",
-  },
-  {
-    id: "gemini-pro",
-    name: "Gemini Pro",
-    description: "Standard Gemini Pro model (Google)",
-  },
-  {
-    id: "gemini-pro-vision",
-    name: "Gemini Pro Vision",
-    description: "Vision-enabled Gemini model (Google)",
   },
 ];
 
@@ -50,14 +71,18 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
   const modelSelectRef = useRef<HTMLSelectElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const [isInteractive, setIsInteractive] = useState(false);
+  const isTransparent = useTransparencyMode();
+  // Update state - persist once shown
   const [updateInfo, setUpdateInfo] = useState<{
     updateAvailable: boolean;
     latestVersion: string;
     releaseUrl?: string;
   } | null>(null);
+  // Always in stealth mode - no mode variable needed
   const isVisibleRef = useRef(isVisible);
   const isInteractiveRef = useRef(isInteractive);
   
+  // Keep refs in sync with state
   useEffect(() => {
     isVisibleRef.current = isVisible;
   }, [isVisible]);
@@ -87,29 +112,34 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     }
   }, []);
 
+  // Ensure interactive mode is disabled whenever settings are hidden
   useEffect(() => {
     if (!isVisible) {
       deactivateInteractiveMode();
     }
   }, [isVisible, deactivateInteractiveMode]);
 
-  const TOOLTIP_HEIGHT = 400; // Fixed height like glass folder (not constrained by window)
+  // FIXED: Use glass folder approach - fixed height with internal scrolling
+  const TOOLTIP_HEIGHT = 420; // Fixed height for consistent window sizing
   const TOOLTIP_WIDTH = 340; // Increased width for better readability
   const BASE_WINDOW_HEIGHT = 260;
 
+  // Load configuration function - defined before useEffect
   const loadCurrentConfig = useCallback(async () => {
     try {
       console.log("Loading API configuration...");
+      // FIXED: Use real API call to get saved configuration
       const response = await window.electronAPI.getApiConfig();
       console.log("API config response:", response);
-      if (response?.success && response.data) {
-        if (response.data.apiKey) {
+      if (response?.success) {
+        const configData = response.data ?? response;
+        if (configData?.apiKey) {
           console.log("Setting API key from config");
-          setApiKey(response.data.apiKey);
+          setApiKey(configData.apiKey);
         }
-        if (response.data.model) {
+        if (configData?.model) {
           console.log("Setting model from config:", response.data.model);
-          setSelectedModel(response.data.model);
+          setSelectedModel(configData.model);
         }
       } else {
         console.log("No API config found or response unsuccessful:", response);
@@ -121,24 +151,30 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
   }, []);
 
   useEffect(() => {
+    // Load initial configuration only on mount
     loadCurrentConfig();
   }, [loadCurrentConfig]);
 
+  // Load config when settings open to ensure we have the latest saved values
   useEffect(() => {
     if (isVisible) {
       loadCurrentConfig();
     }
   }, [isVisible, loadCurrentConfig]);
 
+  // Listen for open-settings event from main process - toggle visibility
   useEffect(() => {
     const cleanup = window.electronAPI.onOpenSettings(() => {
       console.log("Open settings event received, toggling visibility");
+      // Toggle visibility: if visible, close it; if not visible, open it
       setIsVisible(prevVisible => {
         const newVisible = !prevVisible;
         deactivateInteractiveMode();
         
+        // Use setTimeout to ensure state update happens and tooltip is rendered before calculating height
         setTimeout(() => {
           if (!newVisible) {
+            // Closing settings
             if (onVisibilityChange) {
               window.electronAPI.updateContentDimensions({
                 width: 'fixed',
@@ -147,14 +183,18 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               onVisibilityChange(false, 0);
             }
           } else {
+            // Opening settings - calculate actual height from rendered tooltip
+            // Use longer timeout to ensure all content (including update banner) is rendered
             setTimeout(() => {
               if (onVisibilityChange && tooltipRef.current) {
+                // Use actual measured height with more padding
                 const measuredHeight = Math.max(
                   tooltipRef.current.offsetHeight,
                   tooltipRef.current.scrollHeight
                 );
-                const actualHeight = measuredHeight + 30;
+                const actualHeight = measuredHeight + 30; // Increased padding
                 const position = getTooltipPosition();
+                // Calculate required window height with more bottom padding
                 const requiredHeight = Math.max(position.top + actualHeight + 40, BASE_WINDOW_HEIGHT);
                 
                 console.log('Settings opening - height calculation:', {
@@ -172,9 +212,9 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                 });
                 onVisibilityChange(true, actualHeight);
               }
-            }, 150);
+            }, 150); // Increased delay to ensure tooltip is fully rendered
           }
-        }, 50);
+        }, 50); // Initial delay to ensure state update
         
         return newVisible;
       });
@@ -185,13 +225,16 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     };
   }, [onVisibilityChange, deactivateInteractiveMode]);
 
+  // Check for updates when settings opens (cached on backend, so safe to check)
   useEffect(() => {
     if (isVisible) {
+      // If we already have update info, don't check again (persist it)
       if (updateInfo?.updateAvailable) {
         console.log("[Tooltip] Update already shown, keeping it visible");
         return;
       }
       
+      // Small delay to avoid checking during settings animation
       const timeout = setTimeout(() => {
         const checkUpdate = async () => {
           try {
@@ -203,7 +246,9 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                   latestVersion: result.data.latestVersion,
                   releaseUrl: result.data.releaseUrl || 'https://ph.inulute.com/dl'
                 });
+                // Once set, it stays - never clear it
               }
+              // Don't set to null if no update - just leave existing state
             }
           } catch (error) {
             console.error("Error checking for updates:", error);
@@ -216,6 +261,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     }
   }, [isVisible, updateInfo]);
 
+  // Handle download update event
   useEffect(() => {
     const cleanup = window.electronAPI?.onDownloadUpdate?.(async (url) => {
       const downloadUrl = url || updateInfo?.releaseUrl || 'https://ph.inulute.com/dl';
@@ -230,6 +276,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     };
   }, [updateInfo]);
 
+  // Save configuration handler
   const handleSaveConfig = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -239,6 +286,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
       console.log("API Key length:", apiKey.length);
       console.log("Selected model:", selectedModel);
       
+      // FIXED: Use real API call to save configuration
       const response = await window.electronAPI.setApiConfig({
         apiKey: apiKey.trim(),
         model: selectedModel
@@ -249,6 +297,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
       if (response?.success) {
         console.log("Configuration saved successfully");
         setError(null);
+        // Reload configuration from backend to ensure UI reflects saved values
         await loadCurrentConfig();
       } else {
         console.error("Failed to save configuration:", response?.error);
@@ -262,36 +311,45 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     }
   }, [apiKey, selectedModel, loadCurrentConfig]);
 
+  // Reset scroll position when tooltip opens and auto-focus API key input
   useEffect(() => {
     if (isVisible) {
+      // Reset scroll position to top when tooltip opens
+      // Use multiple timeouts to ensure it happens after rendering
       const resetScroll = () => {
         if (scrollContainerRef.current) {
           scrollContainerRef.current.scrollTop = 0;
         }
       };
       
+      // Reset immediately and after a delay to ensure it sticks
       resetScroll();
       setTimeout(resetScroll, 50);
       setTimeout(resetScroll, 150);
       
+      // Auto-focus API key input after a small delay
       if (apiKeyInputRef.current) {
         setTimeout(() => {
+          // Focus without scrolling (prevent default scroll behavior)
           apiKeyInputRef.current?.focus({ preventScroll: true });
+          // Reset scroll again after focus in case it moved
           resetScroll();
         }, 100);
       }
     }
   }, [isVisible]);
 
+  // Intercept scroll events when settings is open and scroll the settings container instead
   useEffect(() => {
     if (!isVisible) return;
 
     const handleScrollEvent = (data: { delta: number }) => {
+      // Try to use the ref first, then fallback to querySelector
       const scrollContainer = scrollContainerRef.current || 
                               tooltipRef.current?.querySelector('.tooltip-scroll') as HTMLElement;
 
       if (scrollContainer) {
-        scrollContainer.scrollBy({ top: data.delta, behavior: 'smooth' });
+        scrollContainer.scrollBy({ top: data.delta * 1.8, behavior: 'smooth' });
       }
     };
 
@@ -302,6 +360,8 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     };
   }, [isVisible]);
 
+  // App-specific keyboard navigation for settings window (via global shortcuts)
+  // Set up listeners once on mount, they'll always be active
   useEffect(() => {
     const cleanupUnlock = window.electronAPI.onSettingsUnlock(async () => {
       console.log("Settings: Unlock shortcut pressed, isVisible:", isVisibleRef.current, "isInteractive:", isInteractiveRef.current);
@@ -322,23 +382,28 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
   }, [activateInteractiveMode]);
 
   const handleWrapperMouseEnter = () => {
+    // Tooltip disabled in stealth-only mode
     return;
   };
 
   const handleWrapperMouseLeave = () => {
+    // FIXED: Use the new visibility change handler
     handleTooltipVisibilityChange(false);
     setIsVisible(false);
   };
 
   const handleTooltipContentMouseEnter = () => {
+    // Tooltip disabled in stealth-only mode
     return;
   };
 
   const handleTooltipContentMouseLeave = () => {
+    // FIXED: Use the new visibility change handler
     handleTooltipVisibilityChange(false);
     setIsVisible(false);
   };
 
+  // FIXED: Always position below command bar, never above, using portal for height freedom
   const getTooltipPosition = () => {
     if (!wrapperRef.current) return { top: 100, left: 100 };
     
@@ -349,6 +414,8 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     console.log('Raw wrapper rect:', wrapperRect);
     console.log('Viewport dimensions:', { width: viewportWidth, height: viewportHeight });
     
+    // FIXED: Find the command bar container to position tooltip relative to it
+    // The settings icon is inside a command bar with height 47px
     const commandBarContainer = wrapperRef.current.closest('.commands-container');
     let referenceRect = wrapperRect;
     
@@ -358,47 +425,56 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
       referenceRect = commandBarRect;
     }
     
-    let top = referenceRect.bottom + 20;
+    // FIXED: ALWAYS place below the command bar - never above
+    // Use the bottom of the command bar container as the reference point
+    let top = referenceRect.bottom + 20; // Increased spacing to ensure it's clearly below
     
     console.log('Reference rect:', referenceRect);
     console.log('Initial top position (below):', top);
-
+    
+    // FIXED: If tooltip would go below viewport, expand the main window instead of cropping
     if (top + TOOLTIP_HEIGHT > viewportHeight - 20) {
       console.log('Tooltip would go below viewport - window expansion will be handled by visibility change');
+      // Window expansion is now handled by handleTooltipVisibilityChange
     }
     
+    // Calculate left position - center on trigger, but keep within viewport
     let left = wrapperRect.left + (wrapperRect.width / 2) - (TOOLTIP_WIDTH / 2);
     
+    // Ensure tooltip stays within viewport bounds
     if (left < 20) left = 20;
     if (left + TOOLTIP_WIDTH > viewportWidth - 20) {
       left = viewportWidth - TOOLTIP_WIDTH - 20;
     }
     
+    // Debug positioning
     console.log('Tooltip positioning:', {
       wrapperRect: { top: wrapperRect.top, bottom: wrapperRect.bottom, left: wrapperRect.left, width: wrapperRect.width },
       referenceRect: { top: referenceRect.top, bottom: referenceRect.bottom, left: referenceRect.left, width: referenceRect.width },
       viewport: { width: viewportWidth, height: viewportHeight },
       tooltip: { width: TOOLTIP_WIDTH, height: TOOLTIP_HEIGHT },
       final: { top, left },
-      strategy: 'below-only',
+      strategy: 'below-only', // Always below
       spacing: top - referenceRect.bottom
     });
     
     return { top, left };
   };
 
+  // FIXED: Use actual measured height like og version - this prevents cropping
   useEffect(() => {
     if (onVisibilityChange) {
+      // Use setTimeout to ensure tooltip is fully rendered before measuring
       const timeout = setTimeout(() => {
         let height = 0;
         if (tooltipRef.current && isVisible) {
-          const measuredHeight = Math.max(
-            tooltipRef.current.offsetHeight,
-            tooltipRef.current.scrollHeight
-          );
-          height = measuredHeight + 30;
+          // Keep tooltip height constrained to fixed value and rely on scrolling
+          const measuredHeight = TOOLTIP_HEIGHT;
+          height = measuredHeight + 30; // Padding for breathing room
           
+          // Also update window dimensions when tooltip is visible
           const position = getTooltipPosition();
+          // Increased bottom padding from 20 to 40 to ensure no cropping
           const requiredHeight = Math.max(position.top + height + 40, BASE_WINDOW_HEIGHT);
           
           console.log('Tooltip height calculation:', {
@@ -411,6 +487,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
             currentWindowHeight: window.innerHeight
           });
           
+          // Always expand to ensure full visibility (removed the conditional check)
           window.electronAPI.updateContentDimensions({ 
             width: 'fixed',
             height: requiredHeight 
@@ -418,6 +495,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
             console.error('Failed to expand window:', error);
           });
         } else if (!isVisible) {
+          // When closing, reset to base height
           window.electronAPI.updateContentDimensions({
             width: 'fixed',
             height: BASE_WINDOW_HEIGHT
@@ -425,13 +503,15 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
         }
         
         onVisibilityChange(isVisible, height);
-      }, isVisible ? 150 : 0);
+      }, isVisible ? 150 : 0); // Increased timeout from 100 to 150ms to ensure all content renders
       
       return () => clearTimeout(timeout);
     }
   }, [isVisible, onVisibilityChange]);
 
   const handleTooltipVisibilityChange = (visible: boolean) => {
+    // This function is kept for backward compatibility but the actual height calculation
+    // is now done in the useEffect above using actual measured height
     setIsVisible(visible);
   };
 
@@ -440,6 +520,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     setError(null);
     
     try {
+      // FIXED: Clear the configuration using the real API
       await window.electronAPI.setApiConfig({
         apiKey: "",
         model: defaultModel
@@ -456,21 +537,25 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
     }
   };
 
+  // FIXED: Use portal to render tooltip outside of any height constraints
   const tooltipContent = isVisible ? (
           <motion.div
             ref={tooltipRef}
       className="fixed pointer-events-auto tooltip-container"
       style={{
-        zIndex: 99999,
+        zIndex: 99999, // FIXED: Very high z-index to ensure it's above everything
         width: `${TOOLTIP_WIDTH}px`,
         height: `${TOOLTIP_HEIGHT}px`,
         maxHeight: `${TOOLTIP_HEIGHT}px`,
         overflow: 'hidden',
         top: `${getTooltipPosition().top}px`,
-        left: `${getTooltipPosition().left}px`, 
+        left: `${getTooltipPosition().left}px`,
+        // FIXED: Ensure tooltip is never constrained by parent containers
         transform: 'none',
         transformOrigin: 'top left',
+        // FIXED: Force absolute positioning independent of any parent
         position: 'fixed',
+        // FIXED: Ensure tooltip can extend beyond viewport boundaries
         clip: 'auto',
         clipPath: 'none',
       }}
@@ -482,33 +567,43 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
       exit={{ opacity: 0, y: -10, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
     >
+      {/* FIXED: Glass folder clean UI - no shadows, minimal styling */}
       <div
         className="h-full text-xs text-white overflow-hidden"
         style={{
-          background: 'rgba(20, 20, 20, 0.9)',
+          background: isTransparent ? 'transparent' : 'rgba(20, 20, 20, 0.9)',
           borderRadius: '12px',
-          outline: '0.5px rgba(255, 255, 255, 0.2) solid',
+          outline: isTransparent ? 'none' : '0.5px rgba(255, 255, 255, 0.2) solid',
           outlineOffset: '-1px',
         }}
       >
+        {/* FIXED: Scrollable content with fixed height and proper scrolling */}
         <div 
           ref={scrollContainerRef}
           className="tooltip-scroll"
               style={{
-            height: `${TOOLTIP_HEIGHT - 60}px`,
+            height: `${TOOLTIP_HEIGHT - 60}px`, // Subtract header height
+            maxHeight: `${TOOLTIP_HEIGHT - 60}px`,
             overflowY: 'auto',
             scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.1)',
+            scrollbarColor: isTransparent 
+              ? 'rgba(255, 255, 255, 0.04) rgba(0, 0, 0, 0.02)'
+              : 'rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.1)',
           }}
         >
           <div className="space-y-4 px-4 py-3">
-            <div className="flex items-center justify-center mb-4 pb-3 border-b border-white/10">
+            {/* Header with donation link and made with love message */}
+            <div 
+              className={`flex items-center justify-center mb-4 pb-3 ${isTransparent ? '' : 'border-b border-white/10'}`}
+              style={isTransparent ? { borderBottom: 'none' } : {}}
+            >
               <div className="flex items-center gap-2">
                 <span className="text-xs text-white/70">Made with ❤️ by</span>
                 <span className="text-xs text-white font-medium">inulute</span>
               </div>
             </div>
 
+            {/* Support the Project Button */}
             <div className="mb-4">
               <a 
                 href="https://support.inulute.com" 
@@ -522,21 +617,25 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                   }
                   e.preventDefault();
                   try {
+                    // Use electron API to open external link
                     if (window.electronAPI?.openUpdateDownload) {
                       await window.electronAPI.openUpdateDownload('https://support.inulute.com');
                     } else {
+                      // Fallback to default link behavior
                       window.open('https://support.inulute.com', '_blank', 'noopener,noreferrer');
                     }
                   } catch (error) {
                     console.error("Error opening support link:", error);
+                    // Fallback to default link behavior
                     window.open('https://support.inulute.com', '_blank', 'noopener,noreferrer');
                   }
                 }}
-                className={`w-full px-4 py-3 bg-transparent text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 border border-white/30 ${
+                className={`w-full px-4 py-3 bg-transparent text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${isTransparent ? '' : 'border border-white/30'} ${
                   isInteractive 
-                    ? 'hover:bg-white/10 hover:border-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20' 
+                    ? isTransparent ? 'hover:bg-transparent hover:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500/20' : 'hover:bg-white/10 hover:border-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20'
                     : 'cursor-default'
                 }`}
+                style={isTransparent ? { border: 'none' } : {}}
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
@@ -575,12 +674,16 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               </div>
             </div>
 
+            {/* Dual verification notice */}
             <div
-              className={`mb-4 px-4 py-2 rounded-lg border text-xs transition-all duration-200 ${
-                isInteractive
-                  ? "bg-emerald-500/15 border-emerald-400/30 text-emerald-100"
-                  : "bg-blue-500/10 border-blue-500/25 text-blue-100"
+              className={`mb-4 px-4 py-2 rounded-lg text-xs transition-all duration-200 ${
+                isTransparent 
+                  ? '' 
+                  : `border ${isInteractive
+                      ? "bg-emerald-500/15 border-emerald-400/30 text-emerald-100"
+                      : "bg-blue-500/10 border-blue-500/25 text-blue-100"}`
               }`}
+              style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
             >
               {isInteractive ? (
                 <div className="flex items-start gap-2">
@@ -588,7 +691,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                   <div>
                     <div className="font-medium text-emerald-200 text-[11px] uppercase tracking-wide mb-1">Interactive Mode Active</div>
                     <div className="text-[11px] leading-relaxed text-emerald-100/90">
-                      You can now interact with settings using your mouse. Click to adjust values, then press <kbd className="px-1 py-0.5 bg-emerald-500/30 rounded border border-emerald-400/40 text-emerald-50 font-mono">Ctrl + ,</kbd> to close settings and return to stealth mode.
+                      You can now interact with settings using your mouse. Click to adjust values, then press <kbd className={`px-1 py-0.5 rounded text-emerald-50 font-mono ${isTransparent ? '' : 'bg-emerald-500/30 border border-emerald-400/40'}`} style={isTransparent ? { background: 'transparent', border: 'none' } : {}}>Ctrl + ,</kbd> to close settings and return to stealth mode.
                     </div>
                   </div>
                 </div>
@@ -598,16 +701,20 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                   <div>
                     <div className="font-medium text-blue-200 text-[11px] uppercase tracking-wide mb-1">Click Protection Active</div>
                     <div className="text-[11px] leading-relaxed text-blue-100/90">
-                      Mouse clicks are disabled to prevent accidental interactions. Use keyboard shortcuts to navigate, or press <kbd className="px-1 py-0.5 bg-blue-500/30 rounded border border-blue-400/40 text-blue-50 font-mono">Ctrl + Shift + ,</kbd> to enable mouse input temporarily.
+                      Mouse clicks are disabled to prevent accidental interactions. Use keyboard shortcuts to navigate, or press <kbd className={`px-1 py-0.5 rounded text-blue-50 font-mono ${isTransparent ? '' : 'bg-blue-500/30 border border-blue-400/40'}`} style={isTransparent ? { background: 'transparent', border: 'none' } : {}}>Ctrl + Shift + ,</kbd> to enable mouse input temporarily.
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Update Available Notification */}
             {updateInfo?.updateAvailable && (
               <div className="mb-4">
-                <div className="bg-blue-500/15 border border-blue-400/30 rounded-lg px-4 py-3">
+                <div 
+                  className={`rounded-lg px-4 py-3 ${isTransparent ? '' : 'bg-blue-500/15 border border-blue-400/30'}`}
+                  style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                >
                   <div className="flex items-start gap-2">
                     <span className="mt-0.5 text-blue-300">●</span>
                     <div className="flex-1">
@@ -628,11 +735,12 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                         }}
                         disabled={!isInteractive}
                         tabIndex={isInteractive ? 0 : -1}
-                        className={`w-full px-4 py-2 bg-blue-500/20 text-blue-100 text-xs font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 border border-blue-400/40 ${
+                        className={`w-full px-4 py-2 text-blue-100 text-xs font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${isTransparent ? '' : 'bg-blue-500/20 border border-blue-400/40'} ${
                           isInteractive 
-                            ? 'hover:bg-blue-500/30 hover:border-blue-400/60 focus:outline-none focus:ring-2 focus:ring-blue-500/20' 
+                            ? isTransparent ? 'hover:bg-transparent hover:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500/20' : 'hover:bg-blue-500/30 hover:border-blue-400/60 focus:outline-none focus:ring-2 focus:ring-blue-500/20'
                             : 'cursor-default'
                         }`}
+                        style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -645,6 +753,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               </div>
             )}
 
+            {/* API Configuration */}
             <div className="mb-4">
               <h3 className="text-sm font-medium text-white mb-2 text-center">API Configuration</h3>
               <div className="space-y-3">
@@ -661,11 +770,12 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                     disabled={!isInteractive}
                     tabIndex={isInteractive ? 0 : -1}
                     placeholder="AIza..."
-                    className={`w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-white/50 transition-all duration-200 ${
+                    className={`w-full px-4 py-2 rounded-lg text-white text-sm placeholder-white/50 transition-all duration-200 ${isTransparent ? '' : 'bg-white/10 border border-white/20'} ${
                       isInteractive 
-                        ? 'focus:outline-none focus:border-white/40 focus:ring-2 focus:ring-blue-500/20' 
+                        ? 'focus:outline-none focus:ring-2 focus:ring-blue-500/20' 
                         : 'cursor-default'
                     }`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
                     />
                   </div>
                   <div>
@@ -679,11 +789,12 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                     }}
                     disabled={!isInteractive}
                     tabIndex={isInteractive ? 0 : -1}
-                    className={`w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm transition-all duration-200 ${
+                    className={`w-full px-4 py-2 rounded-lg text-white text-sm transition-all duration-200 ${isTransparent ? '' : 'bg-white/10 border border-white/20'} ${
                       isInteractive 
-                        ? 'focus:outline-none focus:border-white/40 focus:ring-2 focus:ring-blue-500/20' 
+                        ? 'focus:outline-none focus:ring-2 focus:ring-blue-500/20' 
                         : 'cursor-default'
                     }`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
                     >
                           {MODEL_OPTIONS.map((model, index) => (
                       <option key={model.id} value={model.id} className="bg-gray-800 text-white">
@@ -697,11 +808,12 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
                   onClick={handleSaveConfig}
                   disabled={isLoading || !isInteractive}
                   tabIndex={isInteractive ? 0 : -1}
-                  className={`w-full px-4 py-2 bg-transparent disabled:bg-white/5 text-white text-sm font-medium rounded-lg transition-all duration-200 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-white/30 disabled:border-white/20 ${
+                  className={`w-full px-4 py-2 bg-transparent text-white text-sm font-medium rounded-lg transition-all duration-200 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${isTransparent ? '' : 'border border-white/30 disabled:bg-white/5 disabled:border-white/20'} ${
                     isInteractive 
-                      ? 'hover:bg-white/10 hover:border-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20' 
+                      ? isTransparent ? 'hover:bg-transparent hover:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500/20' : 'hover:bg-white/10 hover:border-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20'
                       : 'cursor-default'
                   }`}
+                  style={isTransparent ? { border: 'none' } : {}}
                     >
                       {isLoading ? (
                         <>
@@ -723,67 +835,112 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               </div>
             </div>
 
+            {/* Comprehensive Shortcuts Section */}
             <div className="mb-4">
               <h3 className="text-sm font-medium text-white mb-3 text-center">Keyboard Shortcuts</h3>
-              <div className="space-y-2 text-xs bg-white/5 rounded-lg px-4 py-3 border border-white/10">
+              <div 
+                className={`space-y-2 text-xs rounded-lg px-4 py-3 ${isTransparent ? '' : 'bg-white/5 border border-white/10'}`}
+                style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+              >
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Show/Hide Window</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + \</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + \</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Toggle Settings</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + ,</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + ,</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Ask AI / Send Query</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + Enter</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + Enter</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Move Window</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + Shift + ←→↑↓</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + Shift + ←→↑↓</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Scroll Response</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + ↑↓</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + ↑↓</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Reset / Cancel</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + R</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + R</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Toggle Mode</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + Shift + M</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + Shift + M</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">History Navigation</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Alt + ↑↓</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Alt + ↑↓</kbd>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Quit Application</span>
-                  <kbd className="px-2 py-1 bg-white/20 rounded-md text-white/90 font-mono text-xs border border-white/30">Ctrl + Q</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-white/20 border border-white/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + Q</kbd>
                 </div>
               </div>
             </div>
 
+            {/* Settings Shortcut */}
             <div className="mb-4">
               <h3 className="text-sm font-medium text-white mb-3 text-center">Settings Shortcut</h3>
-              <div className="space-y-2 text-xs bg-blue-500/10 rounded-lg px-4 py-3 border border-blue-500/20">
+              <div 
+                className={`space-y-2 text-xs rounded-lg px-4 py-3 ${isTransparent ? '' : 'bg-blue-500/10 border border-blue-500/20'}`}
+                style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+              >
                 <div className="flex justify-between items-center py-1">
                   <span className="text-white/80">Scroll Settings</span>
-                  <kbd className="px-2 py-1 bg-blue-500/20 rounded-md text-white/90 font-mono text-xs border border-blue-500/30">Ctrl + ↑↓</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-white/90 font-mono text-xs ${isTransparent ? '' : 'bg-blue-500/20 border border-blue-500/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + ↑↓</kbd>
                 </div>
               </div>
             </div>
 
+            {/* Emergency Recovery Section */}
             <div className="mb-4">
               <h3 className="text-sm font-medium text-white mb-3 text-center">Emergency Recovery</h3>
-              <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg px-4 py-3">
+              <div 
+                className={`rounded-lg px-4 py-3 ${isTransparent ? '' : 'bg-orange-500/10 border border-orange-500/20'}`}
+                style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+              >
                 <div className="text-xs text-orange-300 mb-2 leading-relaxed">
                   If the window becomes unresponsive, invisible, or stuck:
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-white/80 text-xs">Force Show Window</span>
-                  <kbd className="px-2 py-1 bg-orange-500/20 rounded-md text-orange-200 font-mono text-xs border border-orange-500/30">Ctrl + Shift + R</kbd>
+                  <kbd 
+                    className={`px-2 py-1 rounded-md text-orange-200 font-mono text-xs ${isTransparent ? '' : 'bg-orange-500/20 border border-orange-500/30'}`}
+                    style={isTransparent ? { background: 'transparent', border: 'none' } : {}}
+                  >Ctrl + Shift + R</kbd>
                 </div>
                 <div className="mt-2 text-[11px] text-orange-200/80 leading-relaxed">
                   This will restore the window to a visible and usable state.
@@ -812,6 +969,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
         {trigger}
       </div>
 
+      {/* FIXED: Use portal to render tooltip outside of any height constraints */}
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {tooltipContent}
@@ -819,6 +977,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
         document.body
       )}
       
+      {/* FIXED: Click-through overlay to make background non-interactive when tooltip is open */}
       {isVisible && typeof document !== 'undefined' && createPortal(
         <div
           style={{
@@ -827,22 +986,24 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
             left: 0,
             width: '100vw',
             height: '100vh',
-            zIndex: 99998,
-            pointerEvents: 'none',
+            zIndex: 99998, // Just below tooltip
+            pointerEvents: 'none', // Click-through by default
           }}
         >
+          {/* FIXED: Interactive zones for essential elements */}
           <div
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
               width: '100%',
-              height: '47px',
-              pointerEvents: 'auto',
+              height: '47px', // Command bar height
+              pointerEvents: 'auto', // Keep command bar interactive
               zIndex: 1,
             }}
           />
           
+          {/* FIXED: Interactive zone for tooltip area */}
           <div
             style={{
               position: 'absolute',
@@ -850,11 +1011,12 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               left: getTooltipPosition().left - 10,
               width: TOOLTIP_WIDTH + 20,
               height: TOOLTIP_HEIGHT + 20,
-              pointerEvents: 'auto',
+              pointerEvents: 'auto', // Keep tooltip interactive
               zIndex: 1,
             }}
           />
           
+          {/* FIXED: Clickable background to close tooltip */}
           <div
             style={{
               position: 'absolute',
@@ -862,7 +1024,7 @@ export default function Tooltip({ trigger, onVisibilityChange }: TooltipProps) {
               left: 0,
               width: '100%',
               height: '100%',
-              pointerEvents: 'auto',
+              pointerEvents: 'auto', // Make background clickable
               zIndex: 0,
             }}
             onClick={() => handleTooltipVisibilityChange(false)}

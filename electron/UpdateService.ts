@@ -26,6 +26,7 @@ class UpdateService {
   private pendingCheckPromise: Promise<UpdateCheckResult> | null = null;
 
   constructor() {
+    // Don't start periodic checks automatically - let the app control when to check
   }
 
   private getGitHubConfig() {
@@ -42,22 +43,26 @@ class UpdateService {
   }
 
   async checkForUpdates(): Promise<UpdateCheckResult> {
+    // Return cached result if still valid (within cache duration)
     const now = Date.now();
     if (this.cachedResult && (now - this.lastCheckTime) < this.CACHE_DURATION) {
       console.log("[UpdateService] Returning cached update check result");
       return this.cachedResult;
     }
 
+    // If already checking, return the pending promise
     if (this.isChecking && this.pendingCheckPromise) {
       console.log("[UpdateService] Update check already in progress, returning pending promise");
       return this.pendingCheckPromise;
     }
 
+    // Start new check
     this.isChecking = true;
     this.pendingCheckPromise = this.performUpdateCheck();
     
     try {
       const result = await this.pendingCheckPromise;
+      // Cache the result
       this.cachedResult = result;
       this.lastCheckTime = now;
       return result;
@@ -111,6 +116,7 @@ class UpdateService {
     } catch (error: any) {
       console.error('Error checking for updates:', error);
       
+      // If it's a rate limit error, return gracefully
       if (error.message?.includes('403') || error.message?.includes('rate limit')) {
         console.warn('[UpdateService] GitHub API rate limit exceeded. Consider adding a token or waiting.');
         return {
@@ -145,6 +151,7 @@ class UpdateService {
         'User-Agent': 'PhantomLens-Updater'
       };
       
+      // Add token if available (for private repos or to avoid rate limits)
       if (githubConfig.token) {
         headers['Authorization'] = `token ${githubConfig.token}`;
       }
@@ -152,6 +159,7 @@ class UpdateService {
       const response = await fetch(githubConfig.apiUrl, { headers });
 
       if (!response.ok) {
+        // Handle rate limit specifically
         if (response.status === 403) {
           const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
           const rateLimitReset = response.headers.get('x-ratelimit-reset');
@@ -178,6 +186,7 @@ class UpdateService {
     } catch (error: any) {
       console.error('[UpdateService] Error fetching latest release:', error);
       
+      // Re-throw rate limit errors so they can be handled gracefully
       if (error.message?.includes('rate limit')) {
         throw error;
       }
@@ -219,6 +228,7 @@ class UpdateService {
       return false;
     }
     
+    // Remove 'v' prefix if present
     const currentClean = current.replace(/^v/, '').trim();
     const latestClean = latest.replace(/^v/, '').trim();
     
@@ -232,6 +242,7 @@ class UpdateService {
       latestParts: latestParts
     });
     
+    // Compare version parts
     for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
       const currentPart = currentParts[i] || 0;
       const latestPart = latestParts[i] || 0;
@@ -250,10 +261,12 @@ class UpdateService {
   }
 
   public startPeriodicCheck(callback?: (result: UpdateCheckResult) => void): void {
+    // Initial check
     this.checkForUpdates().then(result => {
       if (callback) callback(result);
     });
     
+    // Periodic checks
     this.checkTimer = setInterval(() => {
       this.checkForUpdates().then(result => {
         if (callback) callback(result);
@@ -285,6 +298,7 @@ class UpdateService {
   }
 }
 
+// Export singleton instance
 export const updateService = new UpdateService();
 export type { ReleaseInfo, UpdateCheckResult };
 

@@ -8,6 +8,31 @@ import { Screenshot } from "@/types/screenshots";
 import { fetchScreenshots } from "@/utils/screenshots";
 import phantomlensLogo from "../../../assets/icons/phantomlens_logo.svg";
 
+// Hook to track transparency mode
+function useTransparencyMode() {
+  const [isTransparent, setIsTransparent] = useState(false);
+
+  useEffect(() => {
+    const checkTransparency = () => {
+      setIsTransparent(document.body.classList.contains('transparent-mode'));
+    };
+
+    // Initial check
+    checkTransparency();
+
+    // Watch for class changes
+    const observer = new MutationObserver(checkTransparency);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isTransparent;
+}
+
 interface TaskResponseData {
   response: string;
   isFollowUp?: boolean;
@@ -19,6 +44,7 @@ export interface ResponseProps {
 
 const RESPONSE_WIDTH = 832;
 
+// Animation variants for commands section
 const commandsVariants = {
   hidden: { 
     opacity: 0, 
@@ -36,6 +62,8 @@ const commandsVariants = {
 
 export default function Response({ setView }: ResponseProps) {
   const queryClient = useQueryClient();
+  // Always in stealth mode - no mode variable needed
+  const isTransparent = useTransparencyMode();
   const contentRef = useRef<HTMLDivElement>(null);
   const [responseData, setResponseData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -45,23 +73,29 @@ export default function Response({ setView }: ResponseProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamedResponse, setStreamedResponse] = useState<string>("");
 
+  // Use refs to access latest state in callbacks without causing re-renders
   const isStreamingRef = useRef(false);
   const streamedResponseRef = useRef("");
 
+  // Update refs when state changes
   useEffect(() => {
     isStreamingRef.current = isStreaming;
     streamedResponseRef.current = streamedResponse;
   }, [isStreaming, streamedResponse]);
 
+  // Throttle chunk updates to prevent excessive re-renders and window fluctuations
   const chunkUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingChunkRef = useRef<string | null>(null);
 
   const handleChunkUpdate = useCallback((data: { response: string } | string) => {
+    // Handle both formats: { response: string } or string
     const chunk = typeof data === "string" ? data : data?.response || "";
+    // Store the latest chunk
     pendingChunkRef.current = chunk;
     
+    // Throttle updates to every 50ms to prevent window fluctuations
     if (chunkUpdateTimeoutRef.current) {
-      return;
+      return; // Already scheduled
     }
 
     chunkUpdateTimeoutRef.current = setTimeout(() => {
@@ -74,6 +108,7 @@ export default function Response({ setView }: ResponseProps) {
     }, 50);
   }, []);
 
+  // Single function to update response data
   const updateResponseData = useCallback((responseText: string) => {
     setErrorMessage(null);
     setResponseData(responseText);
@@ -99,11 +134,14 @@ export default function Response({ setView }: ResponseProps) {
   };
 
   const handleClose = () => {
+    // Clear the fixed response width when returning to initial view
     window.electronAPI.clearFixedResponseWidth?.().catch((error: any) => {
       console.warn("Failed to clear fixed response width:", error);
     });
     setView("initial");
   };
+
+  // Removed follow-up prompt functions - not needed in stealth-only mode
 
   useEffect(() => {
     const cleanupFunctions = [
@@ -162,6 +200,7 @@ export default function Response({ setView }: ResponseProps) {
         handleChunkUpdate(chunk);
       }),
       window.electronAPI.onResponseSuccess((rawData: any) => {
+        // Clear any pending chunk updates
         if (chunkUpdateTimeoutRef.current) {
           clearTimeout(chunkUpdateTimeoutRef.current);
           chunkUpdateTimeoutRef.current = null;
@@ -174,6 +213,7 @@ export default function Response({ setView }: ResponseProps) {
         const isFollowUp = cachedResponse?.isFollowUp || false;
         setIsFollowUpResponse(isFollowUp);
         
+        // Use streamed response if available, otherwise use the final response
         const currentStreaming = isStreamingRef.current;
         const currentStreamed = streamedResponseRef.current;
         const finalResponse = currentStreaming && currentStreamed ? currentStreamed : responseText;
@@ -194,12 +234,14 @@ export default function Response({ setView }: ResponseProps) {
           const container = document.getElementById('responseContainer');
           if (!container) return;
           
+          // Find all pre elements in the response container
           const allPreElements = Array.from(
             container.querySelectorAll('pre')
           ) as HTMLElement[];
           
           if (allPreElements.length === 0) return;
           
+          // Find the code block that's currently visible in the viewport
           let targetScrollableElement: HTMLElement | null = null;
           let maxVisibleArea = 0;
           const containerRect = container.getBoundingClientRect();
@@ -207,19 +249,24 @@ export default function Response({ setView }: ResponseProps) {
           allPreElements.forEach((preElement) => {
             const rect = preElement.getBoundingClientRect();
             
+            // Check if pre element is within container bounds
             if (rect.top < containerRect.bottom && rect.bottom > containerRect.top) {
+              // Calculate visible area
               const visibleTop = Math.max(rect.top, containerRect.top);
               const visibleBottom = Math.min(rect.bottom, containerRect.bottom);
               const visibleArea = visibleBottom - visibleTop;
               
+              // Find the actual scrollable element - could be the pre itself or a child
               let scrollableElement: HTMLElement | null = null;
               
+              // First check if the pre element itself is scrollable
               const preStyle = window.getComputedStyle(preElement);
               if (preElement.scrollWidth > preElement.clientWidth && 
                   (preStyle.overflowX === 'auto' || preStyle.overflowX === 'scroll' || 
                    preElement.classList.contains('overflow-x-auto'))) {
                 scrollableElement = preElement;
               } else {
+                // Check children for scrollable elements (SyntaxHighlighter might wrap content)
                 const children = Array.from(preElement.children) as HTMLElement[];
                 for (const child of children) {
                   const childStyle = window.getComputedStyle(child);
@@ -231,6 +278,7 @@ export default function Response({ setView }: ResponseProps) {
                 }
               }
               
+              // If we found a scrollable element and it has more visible area, use it
               if (scrollableElement && visibleArea > maxVisibleArea) {
                 maxVisibleArea = visibleArea;
                 targetScrollableElement = scrollableElement;
@@ -238,11 +286,13 @@ export default function Response({ setView }: ResponseProps) {
             }
           });
           
+          // Scroll the target code block horizontally
           if (targetScrollableElement) {
             const element = targetScrollableElement as HTMLElement;
             const currentScroll = element.scrollLeft;
             const maxScroll = element.scrollWidth - element.clientWidth;
             
+            // Only scroll if there's room to scroll
             if ((delta < 0 && currentScroll > 0) || (delta > 0 && currentScroll < maxScroll)) {
               element.scrollBy({ left: delta, behavior: 'smooth' });
             }
@@ -252,11 +302,12 @@ export default function Response({ setView }: ResponseProps) {
         }
       }),
       window.electronAPI.onFollowUpStart(() => {
+        // Clear any existing streaming state and prepare for follow-up
         setIsStreaming(false);
         setStreamedResponse("");
         setResponseData(null);
         setErrorMessage(null);
-        setIsFollowUpResponse(true);
+        setIsFollowUpResponse(true); // Mark as follow-up from the start
         if (chunkUpdateTimeoutRef.current) {
           clearTimeout(chunkUpdateTimeoutRef.current);
           chunkUpdateTimeoutRef.current = null;
@@ -266,6 +317,7 @@ export default function Response({ setView }: ResponseProps) {
       }),
       window.electronAPI.onFollowUpChunk(handleChunkUpdate),
       window.electronAPI.onFollowUpSuccess((rawData: any) => {
+        // Clear any pending chunk updates
         if (chunkUpdateTimeoutRef.current) {
           clearTimeout(chunkUpdateTimeoutRef.current);
           chunkUpdateTimeoutRef.current = null;
@@ -274,6 +326,7 @@ export default function Response({ setView }: ResponseProps) {
         const responseText =
           typeof rawData === "string" ? rawData : rawData?.response || "";
         
+        // Use streamed response if available, otherwise use the final response
         const currentStreaming = isStreamingRef.current;
         const currentStreamed = streamedResponseRef.current;
         const finalResponse = currentStreaming && currentStreamed ? currentStreamed : responseText;
@@ -307,6 +360,7 @@ export default function Response({ setView }: ResponseProps) {
     };
   }, [queryClient, updateResponseData, handleChunkUpdate]);
 
+  // Load cached response on mount
   useEffect(() => {
     const cachedResponse = queryClient.getQueryData<TaskResponseData>(["task_response"]);
     if (cachedResponse?.response) {
@@ -315,6 +369,9 @@ export default function Response({ setView }: ResponseProps) {
     }
   }, [queryClient, updateResponseData]);
 
+  // Removed mode detection and key handlers - not needed in stealth-only mode
+
+  // Determine what content to display
   const displayContent = isStreaming ? streamedResponse : responseData;
   const isLoading = !displayContent && !errorMessage && !isStreaming;
   const hasResponse =
@@ -334,19 +391,20 @@ export default function Response({ setView }: ResponseProps) {
         width: "100%"
       }}
     >
+          {/* FIXED: Reduced spacing and margins for commands */}
           <motion.div 
             className="commands-container flex-shrink-0 w-full"
             style={{ 
-              background: hasResponse ? 'transparent' : 'rgba(0, 0, 0, 0.3)',
-              backdropFilter: hasResponse ? 'none' : 'blur(5px)',
+              background: (hasResponse || isTransparent) ? 'transparent' : 'rgba(0, 0, 0, 0.3)',
+              backdropFilter: (hasResponse || isTransparent) ? 'none' : 'blur(5px)',
               borderRadius: '12px',
-              border: hasResponse ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
+              border: (hasResponse || isTransparent) ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
               zIndex: 1000,
               position: 'relative',
-              marginBottom: '6px',
+              marginBottom: '6px', // FIXED: Reduced bottom margin
               maxWidth: `${RESPONSE_WIDTH}px`,
               width: '100%',
-              pointerEvents: 'none',
+              pointerEvents: 'none', // Always pass-through (stealth mode only)
             }}
             variants={commandsVariants}
           >
@@ -357,18 +415,26 @@ export default function Response({ setView }: ResponseProps) {
             />
           </motion.div>
 
+          {/* Response Container - Matches thinking window dimensions */}
           <div 
             className={`flex flex-col w-full rounded-3xl overflow-hidden relative ${!hasResponse ? 'hidden' : ''}`}
             style={{
-              background: 'rgba(10, 10, 12, 0.78)',
-              backdropFilter: 'blur(10px)',
+              background: isTransparent
+                ? 'transparent'
+                : 'rgba(10, 10, 12, 0.78)',
+              backdropFilter: isTransparent
+                ? 'none'
+                : 'blur(10px)',
               borderRadius: '24px',
-              border: '1px solid rgba(255, 255, 255, 0.14)',
+              border: isTransparent
+                ? 'none'
+                : '1px solid rgba(255, 255, 255, 0.14)',
               maxWidth: `${RESPONSE_WIDTH}px`,
               width: '100%'
             }}
           >
             
+            {/* Response Header */}
             <div className="flex justify-between items-center px-4 py-3 flex-shrink-0"
                  style={{ 
                    background: 'transparent'
@@ -380,6 +446,10 @@ export default function Response({ setView }: ResponseProps) {
                     src={phantomlensLogo}
                     alt="PhantomLens"
                     className="w-8 h-8"
+                    style={{
+                      opacity: isTransparent ? 0.4 : 1,
+                      transition: 'opacity 0.3s ease'
+                    }}
                   />
                 </div>
                 <span className="text-sm font-medium whitespace-nowrap text-white" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
@@ -393,6 +463,7 @@ export default function Response({ setView }: ResponseProps) {
                 </span>
               </div>
 
+              {/* Status Indicator */}
               {!isLoading && !errorMessage && displayContent && (
               <div className="flex items-center gap-2 flex-shrink-0">
                   <span 
@@ -414,7 +485,8 @@ export default function Response({ setView }: ResponseProps) {
               </div>
               )}
             </div>
-            
+
+            {/* Response Container */}
             <div 
               id="responseContainer" 
               className="overflow-y-auto text-sm leading-relaxed max-h-96 select-text"

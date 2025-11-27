@@ -5,11 +5,12 @@ import { contextBridge, ipcRenderer } from "electron";
 // Types for the exposed Electron API
 interface ElectronAPI {
   updateContentDimensions: (dimensions: {
-    width?: number | string;
+    width?: number | string;  // Made optional to fix TypeScript error
     height: number;
   }) => Promise<void>;
   setFixedResponseWidth: () => Promise<{ success: boolean; data?: { fixedWidth: number }; error?: string }>;
   clearStore: () => Promise<{ success: boolean; error?: string }>;
+  // process
   getScreenshots: () => Promise<{
     success: boolean;
     previews?: Array<{ path: string; preview: string }> | null;
@@ -65,10 +66,12 @@ interface ElectronAPI {
     success: boolean;
     error?: string;
   }>;
+  // NEW: Safe mouse event alternatives
   enableSafeClickThrough: () => Promise<{ success: boolean; error?: string }>;
   restoreInteractiveMode: () => Promise<{ success: boolean; error?: string }>;
   emergencyMouseRecovery: () => Promise<{ success: boolean; error?: string }>;
 
+  // GitHub Update Check methods
   checkGitHubUpdate: () => Promise<{
     success: boolean;
     data?: {
@@ -82,17 +85,23 @@ interface ElectronAPI {
     };
     error?: string;
   }>;
+  // GitHub Update event listeners
   onDownloadUpdate: (callback: (url?: string) => void) => () => void;
+  // Application control
   quitApplication: () => Promise<{ success: boolean; error?: string }>;
+  // Mode & history
   getMode: () => Promise<{ success: boolean; data?: { mode: "normal"|"stealth" }; error?: string }>;
   setMode: (mode: "normal"|"stealth") => Promise<{ success: boolean; error?: string }>;
   onModeChanged: (cb: (data: { mode: "normal"|"stealth" }) => void) => () => void;
   onHistoryLoad: (cb: (data: { content: string }) => void) => () => void;
   onResponseScroll: (cb: (data: { delta: number }) => void) => () => void;
+  // Prompt
   setUserPrompt: (prompt: string) => Promise<{ success: boolean; error?: string }>;
   getUserPrompt: () => Promise<{ success: boolean; data?: { prompt: string }; error?: string }>;
+  // Settings
   onOpenSettings: (callback: () => void) => () => void;
   onSettingsUnlock: (callback: () => void) => () => void;
+  onToggleTransparency: (callback: () => void) => () => void;
   // Usage Counter
   getAppOpenCount: () => Promise<{
     success: boolean;
@@ -115,12 +124,14 @@ interface ElectronAPI {
 }
 
 export const PROCESSING_EVENTS = {
+  // states for generating the initial solution
   INITIAL_START: "initial-start",
   RESPONSE_SUCCESS: "response-success",
   INITIAL_RESPONSE_ERROR: "response-error",
   RESET: "reset",
   RESPONSE_CHUNK: "response-chunk",
 
+  // states for processing the debugging
   FOLLOW_UP_START: "follow-up-start",
   FOLLOW_UP_SUCCESS: "follow-up-success",
   FOLLOW_UP_ERROR: "follow-up-error",
@@ -147,6 +158,7 @@ const electronAPI = {
       throw error;
     }
   },
+  // Event listeners
   onScreenshotTaken: (
     callback: (data: { path: string; preview: string }) => void
   ) => {
@@ -269,10 +281,12 @@ const electronAPI = {
   setIgnoreMouseEvents: () => ipcRenderer.invoke("set-ignore-mouse-events"),
   setInteractiveMouseEvents: () =>
     ipcRenderer.invoke("set-interactive-mouse-events"),
+  // NEW: Safe mouse event alternatives  
   enableSafeClickThrough: () => ipcRenderer.invoke("enable-safe-click-through"),
   restoreInteractiveMode: () => ipcRenderer.invoke("restore-interactive-mode"),
   emergencyMouseRecovery: () => ipcRenderer.invoke("emergency-mouse-recovery"),
 
+  // GitHub Update Check methods
   checkGitHubUpdate: () => ipcRenderer.invoke("check-github-update"),
   openUpdateDownload: (url?: string) => ipcRenderer.invoke("open-update-download", url),
   onDownloadUpdate: (callback: (url?: string) => void) => {
@@ -284,6 +298,7 @@ const electronAPI = {
   },
   
   quitApplication: () => ipcRenderer.invoke("quit-application"),
+  // Mode & history
   getMode: () => ipcRenderer.invoke("get-mode"),
   setMode: (mode: "normal"|"stealth") => ipcRenderer.invoke("set-mode", mode),
   onModeChanged: (callback: (data: { mode: "normal"|"stealth" }) => void) => {
@@ -332,25 +347,37 @@ const electronAPI = {
       ipcRenderer.removeListener("settings-unlock", subscription);
     };
   },
-    // Usage Counter
-    getAppOpenCount: () => ipcRenderer.invoke("get-app-open-count"),
-    setStatsServerEndpoint: (endpoint: string) =>
-      ipcRenderer.invoke("set-stats-server-endpoint", endpoint),
-    getStatsServerEndpoint: () => ipcRenderer.invoke("get-stats-server-endpoint"),
-    resetAppOpenCount: () => ipcRenderer.invoke("reset-app-open-count"),
-  } as ElectronAPI;
+  onToggleTransparency: (callback: () => void) => {
+    const subscription = () => callback();
+    ipcRenderer.on("toggle-transparency", subscription);
+    return () => {
+      ipcRenderer.removeListener("toggle-transparency", subscription);
+    };
+  },
+  // Usage Counter
+  getAppOpenCount: () => ipcRenderer.invoke("get-app-open-count"),
+  setStatsServerEndpoint: (endpoint: string) =>
+    ipcRenderer.invoke("set-stats-server-endpoint", endpoint),
+  getStatsServerEndpoint: () => ipcRenderer.invoke("get-stats-server-endpoint"),
+  resetAppOpenCount: () => ipcRenderer.invoke("reset-app-open-count"),
+} as ElectronAPI;
 
+// Before exposing the API
 console.log(
   "About to expose electronAPI with methods:",
   Object.keys(electronAPI)
 );
 
+// Add this focus restoration handler
 window.addEventListener("focus", () => {
   console.log("Window focused");
 });
 
+// Expose the API to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);
 
+// Expose platform info
 contextBridge.exposeInMainWorld("platform", process.platform);
 
+// Log that preload is complete
 console.log("Preload script completed");

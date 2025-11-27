@@ -8,18 +8,25 @@ export class ProcessingHelper {
   private deps: IProcessingHelperDeps;
   private screenshotHelper: ScreenshotHelper;
   private isCurrentlyProcessing: boolean = false;
-  private previousResponse: string | null = null;
+  private previousResponse: string | null = null; // Store previous response for context
 
+  // ============================================================================
+  // BUG FIX: Enhanced AbortController Management
+  // ============================================================================
   private currentProcessingAbortController: AbortController | null = null;
   private currentExtraProcessingAbortController: AbortController | null = null;
-  private processingTimeouts: Set<NodeJS.Timeout> = new Set();
+  private processingTimeouts: Set<NodeJS.Timeout> = new Set(); // Track all timeouts
 
   constructor(deps: IProcessingHelperDeps) {
     this.deps = deps;
     this.screenshotHelper = deps.getScreenshotHelper();
   }
 
+  // ============================================================================
+  // BUG FIX: Safe AbortController Creation and Cleanup
+  // ============================================================================
   private createAbortController(type: 'main' | 'extra'): AbortController {
+    // Clean up existing controller first
     this.safeAbortController(type === 'main' ? this.currentProcessingAbortController : this.currentExtraProcessingAbortController);
     
     const controller = new AbortController();
@@ -30,9 +37,10 @@ export class ProcessingHelper {
       this.currentExtraProcessingAbortController = controller;
     }
     
+    // Set up timeout protection to prevent hanging requests
     const timeoutId = setTimeout(() => {
       this.safeAbortController(controller);
-    }, 120000);
+    }, 120000); // 2 minute timeout
     
     this.processingTimeouts.add(timeoutId);
     
@@ -44,15 +52,21 @@ export class ProcessingHelper {
     
     try {
       if (!controller.signal.aborted) {
+        // Wrap abort in additional try-catch to prevent uncaught exceptions
+        // from abort event listeners that might throw
         try {
           controller.abort();
         } catch (abortError: any) {
+          // If abort throws (e.g., from event listeners), catch it here
+          // This prevents uncaught exceptions when canceling requests
           if (abortError?.message !== "Request aborted" && abortError?.name !== "AbortError") {
             console.warn("Error during abort (non-fatal):", abortError);
           }
+          // Silently ignore abort errors - they're expected when canceling
         }
       }
     } catch (error) {
+      // Silently handle abort errors - they're expected when canceling
       console.warn("Error aborting request controller (this is usually safe to ignore):", error);
     }
   }
@@ -85,6 +99,9 @@ export class ProcessingHelper {
       const view = this.deps.getView();
 
       if (view === "initial") {
+        // CRITICAL: Apply taskbar prevention IMMEDIATELY when initial processing starts
+        // This prevents taskbar from appearing before setView("response") is called
+        // Set it MANY times synchronously to prevent even millisecond flashes
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.setSkipTaskbar(true);
           mainWindow.setSkipTaskbar(true);
@@ -100,6 +117,7 @@ export class ProcessingHelper {
             mainWindow.blur();
           }
           
+          // Use process.nextTick to set it before event loop continues
           process.nextTick(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.setSkipTaskbar(true);
@@ -112,6 +130,7 @@ export class ProcessingHelper {
         
         mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.INITIAL_START);
         
+        // CRITICAL: Set skipTaskbar again immediately after sending IPC message
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.setSkipTaskbar(true);
           mainWindow.setSkipTaskbar(true);
@@ -122,6 +141,7 @@ export class ProcessingHelper {
         const screenshotQueue = this.screenshotHelper.getScreenshotQueue();
         
         try {
+          // Create abort controller with enhanced management
           const abortController = this.createAbortController('main');
           const { signal } = abortController;
 
@@ -132,6 +152,7 @@ export class ProcessingHelper {
             }))
           );
 
+          // Validate base64 data before processing
           const validScreenshots = screenshots.filter((screenshot, index) => {
             const { data } = screenshot;
             if (!data || typeof data !== 'string') {
@@ -139,11 +160,13 @@ export class ProcessingHelper {
               return false;
             }
             
+            // Check if it's a valid base64 string
             if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
               console.warn(`[INITIAL] Invalid base64 format at index ${index}`);
               return false;
             }
             
+            // Check minimum length (base64 should be reasonably long)
             if (data.length < 100) {
               console.warn(`[INITIAL] Base64 data too short at index ${index}: ${data.length} chars`);
               return false;
@@ -199,7 +222,9 @@ export class ProcessingHelper {
             return;
           }
 
+          // Only set view to response if processing succeeded
           console.log("Setting view to response after successful processing");
+          // Save to local history (main export)
           try {
             const main = require("./main");
             main.saveResponseToHistory?.(result.data);
@@ -220,18 +245,21 @@ export class ProcessingHelper {
               error.message || "Server error. Please try again."
             );
           }
+          // Reset view back to queue on error
           console.log("Resetting view to queue due to error");
           this.deps.setView("initial");
         } finally {
           this.currentProcessingAbortController = null;
         }
       } else {
+        // view == 'response' - follow-up processing
         const extraScreenshotQueue =
           this.screenshotHelper.getExtraScreenshotQueue();
         mainWindow.webContents.send(
           this.deps.PROCESSING_EVENTS.FOLLOW_UP_START
         );
 
+        // Create abort controller with enhanced management
         const abortController = this.createAbortController('extra');
         const { signal } = abortController;
 
@@ -249,7 +277,7 @@ export class ProcessingHelper {
           const result = await this.processExtraScreenshotsHelper(
             screenshots,
             signal,
-            ""
+            "" // No user prompt for main processing
           );
 
           if (result.success) {
@@ -281,8 +309,8 @@ export class ProcessingHelper {
         }
       }
     } finally {
-      this.isCurrentlyProcessing = false;
-      this.clearProcessingTimeouts();
+      this.isCurrentlyProcessing = false; // Ensure flag is reset
+      this.clearProcessingTimeouts(); // Clean up any timeouts
     }
   }
 
@@ -298,9 +326,11 @@ export class ProcessingHelper {
         const imageDataList = screenshots.map((screenshot) => screenshot.data);
         const mainWindow = this.deps.getMainWindow();
 
+        // Get configured provider and API key from environment
         const provider = process.env.API_PROVIDER || "gemini";
         const apiKey = process.env.API_KEY;
 
+        // Get model directly from config store via deps
         const model = await this.deps.getConfiguredModel();
 
         if (!apiKey) {
@@ -310,10 +340,11 @@ export class ProcessingHelper {
         }
 
         const base64Images = imageDataList.map(
-          (data) => data
+          (data) => data // Keep the base64 string as is
         );
 
         if (mainWindow) {
+          // Generate response directly using images
           const responseResult = await this.generateResponseWithImages(
             signal,
             base64Images,
@@ -323,6 +354,7 @@ export class ProcessingHelper {
 
           if (responseResult.success) {
             this.screenshotHelper.clearExtraScreenshotQueue();
+            // Store the response for follow-up context
             this.previousResponse = responseResult.data;
             mainWindow.webContents.send(
               this.deps.PROCESSING_EVENTS.RESPONSE_SUCCESS,
@@ -360,15 +392,19 @@ export class ProcessingHelper {
     };
   }
 
+  // ============================================================================
+  // BUG FIX: Enhanced Error Handling and Resource Cleanup
+  // ============================================================================
   private async generateResponseWithImages(
     signal: AbortSignal,
     base64Images: string[],
     apiKey: string,
     model: string
   ) {
+    // Declare variables in function scope so catch block can access them
     let responseText = "";
-    let chunksSent = false;
-    let accumulatedText = "";
+    let chunksSent = false; // Track if any chunks were sent
+    let accumulatedText = ""; // Accumulated text from chunks
     
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
@@ -384,6 +420,7 @@ export class ProcessingHelper {
         },
       }));
 
+      // Prepare content parts array starting with images
       const contentParts = [...imageParts];
       console.log(
         `[PROCESSING] Images added to contentParts: ${imageParts.length}`
@@ -394,10 +431,12 @@ export class ProcessingHelper {
         ``,
       ];
 
+      // Include optional user prompt (normal mode typing)
       try {
         const typed = this.deps.getUserPrompt?.();
         if (typed && typed.trim().length > 0) {
           promptLines.push(`## User Prompt`, "", typed.trim(), "");
+          // Clear after consuming to avoid reuse
           this.deps.clearUserPrompt?.();
         }
       } catch {}
@@ -424,13 +463,17 @@ export class ProcessingHelper {
 
       if (signal.aborted) throw new Error("Request aborted");
       
+      // Enhanced abort handling - don't throw, just mark as aborted
       const abortHandler = () => {
+        // Don't throw here - let the fetch request handle the abort naturally
+        // The error will be caught in the catch block below
       };
       signal.addEventListener("abort", abortHandler);
 
       const mainWindow = this.deps.getMainWindow();
 
       try {
+        // Stream the response with controlled pace
         const result = await geminiModel.generateContentStream([
           prompt,
           ...contentParts,
@@ -438,6 +481,7 @@ export class ProcessingHelper {
 
         accumulatedText = "";
         for await (const chunk of result.stream) {
+          // Check for abort between chunks
           if (signal.aborted) {
             throw new Error("Request aborted");
           }
@@ -445,8 +489,9 @@ export class ProcessingHelper {
           const chunkText = chunk.text();
           accumulatedText += chunkText;
 
+          // Send chunk to UI for live markdown rendering
           if (mainWindow && !mainWindow.isDestroyed()) {
-            chunksSent = true;
+            chunksSent = true; // Mark that we've sent at least one chunk
             mainWindow.webContents.send(
               this.deps.PROCESSING_EVENTS.RESPONSE_CHUNK,
               { response: accumulatedText }
@@ -456,6 +501,7 @@ export class ProcessingHelper {
 
         responseText = accumulatedText;
 
+        // Send final success message
         if (mainWindow && !mainWindow.isDestroyed()) {
           try {
             const main = require("./main");
@@ -469,6 +515,7 @@ export class ProcessingHelper {
         try {
           signal.removeEventListener("abort", abortHandler);
         } catch (e) {
+          // Ignore if removeEventListener fails - signal may already be cleaned up
         }
       }
       
@@ -480,9 +527,11 @@ export class ProcessingHelper {
         response: error.response?.data,
         chunksSent,
       });
-    
+
+      // If we already sent chunks, don't reset the view - the UI already has partial content
       if (chunksSent) {
         console.log("Chunks were already sent - not resetting view, allowing partial response to display");
+        // Send final chunk with whatever we have
         if (mainWindow && !mainWindow.isDestroyed() && accumulatedText) {
           mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.RESPONSE_SUCCESS, { response: accumulatedText });
         }
@@ -555,9 +604,11 @@ export class ProcessingHelper {
       const imageDataList = screenshots.map((screenshot) => screenshot.data);
       const mainWindow = this.deps.getMainWindow();
 
+      // Get configured provider and API key from environment
       const provider = process.env.API_PROVIDER || "gemini";
       const apiKey = process.env.API_KEY;
 
+      // Get model directly from config store via deps
       const model = await this.deps.getConfiguredModel();
 
       if (!apiKey) {
@@ -565,18 +616,21 @@ export class ProcessingHelper {
       }
 
       const base64Images = imageDataList.map(
-        (data) => data
+        (data) => data // Keep the base64 string as is
       );
 
+      // Validate base64 data before sending to Gemini
       const validBase64Images = base64Images.filter((data, index) => {
         if (!data || typeof data !== 'string') {
           return false;
         }
         
+        // Check if it's a valid base64 string
         if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
           return false;
         }
         
+        // Check minimum length (base64 should be reasonably long)
         if (data.length < 100) {
           return false;
         }
@@ -588,6 +642,7 @@ export class ProcessingHelper {
         throw new Error("No valid screenshot data available for follow-up processing. Please try taking a new screenshot.");
       }
 
+      // For follow-up, use the same approach as the initial response, including analysis/summary
       const genAI = new GoogleGenerativeAI(apiKey);
       const geminiModelId = model.startsWith("gemini-")
         ? `models/${model}`
@@ -601,6 +656,7 @@ export class ProcessingHelper {
         },
       }));
 
+      // Prepare content parts array starting with images
       const contentParts = [...imageParts];
 
       const promptLines = [
@@ -611,10 +667,12 @@ export class ProcessingHelper {
         ``,
       ];
 
+      // Include user's typed follow-up text if available
       if (userPrompt && userPrompt.trim().length > 0) {
         promptLines.push(`## Additional User Question`, "", userPrompt.trim(), "");
       }
 
+      // Add context about the previous response if available
       try {
         const previousResponse = this.deps.getPreviousResponse?.();
         if (previousResponse && previousResponse.trim().length > 0) {
@@ -653,13 +711,17 @@ export class ProcessingHelper {
 
       if (signal.aborted) throw new Error("Request aborted");
       
+      // Enhanced abort handling - don't throw, just mark as aborted
       const abortHandler = () => {
+        // Don't throw here - let the fetch request handle the abort naturally
+        // The error will be caught in the catch block below
       };
       signal.addEventListener("abort", abortHandler);
 
       let followUpResponse = "";
 
       try {
+        // Stream the follow-up response with controlled pace
         const result = await geminiModel.generateContentStream([
           prompt,
           ...contentParts,
@@ -667,6 +729,7 @@ export class ProcessingHelper {
 
         let accumulatedText = "";
         for await (const chunk of result.stream) {
+          // Check for abort between chunks
           if (signal.aborted) {
             throw new Error("Request aborted");
           }
@@ -674,6 +737,7 @@ export class ProcessingHelper {
           const chunkText = chunk.text();
           accumulatedText += chunkText;
 
+          // Send chunk to UI for live markdown rendering
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send(
               this.deps.PROCESSING_EVENTS.FOLLOW_UP_CHUNK,
@@ -684,6 +748,7 @@ export class ProcessingHelper {
 
         followUpResponse = accumulatedText;
 
+        // Send final success message
         if (mainWindow && !mainWindow.isDestroyed()) {
           try {
             const main = require("./main");
@@ -696,6 +761,7 @@ export class ProcessingHelper {
         try {
           signal.removeEventListener("abort", abortHandler);
         } catch (e) {
+          // Ignore if removeEventListener fails - signal may already be cleaned up
         }
       }
 
@@ -712,6 +778,7 @@ export class ProcessingHelper {
         return { success: false, error: "Follow-up processing canceled." };
       }
 
+      // Special handling for image validation errors
       if (error.message.includes("No valid screenshot data") || 
           error.message.includes("Provided image is not valid")) {
         return {
@@ -736,27 +803,36 @@ export class ProcessingHelper {
     }
   }
 
+  // ============================================================================
+  // BUG FIX: Enhanced Request Cancellation with Comprehensive Cleanup
+  // ============================================================================
   public cancelOngoingRequests(): void {
     let wasCancelled = false;
 
+    // Safely abort all controllers with better error handling
     [this.currentProcessingAbortController, this.currentExtraProcessingAbortController]
       .filter(Boolean)
       .forEach(controller => {
         try {
           if (controller && !controller.signal.aborted) {
+            // Use the safe abort method which handles errors better
             this.safeAbortController(controller);
             wasCancelled = true;
           }
         } catch (error) {
+          // Silently handle abort errors - they're expected when canceling
           console.warn("Error aborting request controller (this is usually safe to ignore):", error);
         }
       });
 
+    // Clear controller references
     this.currentProcessingAbortController = null;
     this.currentExtraProcessingAbortController = null;
 
+    // Clear all timeouts
     this.clearProcessingTimeouts();
 
+    // Reset processing state
     this.isCurrentlyProcessing = false;
     this.deps.setHasFollowedUp(false);
 
@@ -780,6 +856,9 @@ export class ProcessingHelper {
     return this.previousResponse;
   }
 
+  // ============================================================================
+  // NEW: Follow-up Processing Method
+  // ============================================================================
   public async processFollowUp(): Promise<void> {
     if (this.isCurrentlyProcessing) {
       console.log("Processing already in progress. Skipping follow-up call.");
@@ -794,10 +873,13 @@ export class ProcessingHelper {
     }
 
     try {
+      // Set view to follow-up
       this.deps.setView("followup");
       
+      // Notify that follow-up processing has started
       mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.FOLLOW_UP_START);
       
+      // Get current screenshots for context
       const screenshotQueue = this.screenshotHelper.getScreenshotQueue();
       const extraScreenshotQueue = this.screenshotHelper.getExtraScreenshotQueue();
       
@@ -807,12 +889,15 @@ export class ProcessingHelper {
         return;
       }
 
+      // Capture user prompt before processing
       const userPrompt = this.deps.getUserPrompt?.() || "";
 
+      // Clear the user prompt immediately to prevent reuse
       if (userPrompt) {
         this.deps.clearUserPrompt?.();
       }
 
+      // Process follow-up with existing screenshots and user prompt
       const result = await this.processExtraScreenshotsHelper(
         await Promise.all(
           [...screenshotQueue, ...extraScreenshotQueue].map(async (path) => ({
@@ -821,22 +906,26 @@ export class ProcessingHelper {
           }))
         ),
         new AbortController().signal,
-        userPrompt
+        userPrompt // Pass user prompt to follow-up processing
       );
 
       if (result.success && result.data) {
+        // Send follow-up response
         mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.FOLLOW_UP_SUCCESS, {
           response: result.data,
           isFollowUp: true
         });
         
+        // Update the main response with follow-up content
         mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.RESPONSE_SUCCESS, {
           response: result.data,
           isFollowUp: true
         });
         
+        // Store the follow-up response for future context
         this.previousResponse = result.data;
         
+        // Mark that we've followed up
         this.deps.setHasFollowedUp(true);
       } else {
         mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.FOLLOW_UP_ERROR, result.error || "Follow-up processing failed");
@@ -850,6 +939,9 @@ export class ProcessingHelper {
     }
   }
 
+  // ============================================================================
+  // BUG FIX: Cleanup on Destruction
+  // ============================================================================
   public cleanup(): void {
     this.cancelOngoingRequests();
     this.clearProcessingTimeouts();

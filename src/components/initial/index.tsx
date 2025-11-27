@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 
@@ -21,11 +21,15 @@ export default function Initial({ setView }: InitialProps) {
     refetchOnWindowFocus: false,
   });
 
+  // FIXED: Removed conflicting dimension update logic
+  // The main component now handles all dimension updates
   useEffect(() => {
+    // Set up event listeners only
     const cleanupFunctions = [
       window.electronAPI.onScreenshotTaken(() => refetch()),
       window.electronAPI.onResetView(() => refetch()),
       window.electronAPI.onResponseError((error: string) => {
+        // Clear the fixed response width when returning to initial view due to error
         window.electronAPI.clearFixedResponseWidth?.().catch((error: any) => {
           console.warn("Failed to clear fixed response width:", error);
         });
@@ -44,8 +48,9 @@ export default function Initial({ setView }: InitialProps) {
     <div 
       ref={contentRef} 
       className="relative space-y-2 px-4 py-2"
-      style={{ minHeight: '80px' }}
+      style={{ minHeight: '80px' }} // FIXED: Reduced minimum height
     >
+      {/* Commands section with reduced spacing */}
       <div className="relative z-10">
         <Commands
           view="initial"
@@ -53,9 +58,10 @@ export default function Initial({ setView }: InitialProps) {
         />
       </div>
 
+      {/* Screenshot previews with reduced spacing */}
       {screenshots.length > 0 && (
         <motion.div
-          className="grid grid-cols-2 gap-2"
+          className="grid grid-cols-2 gap-2" // FIXED: Reduced gap
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
@@ -69,6 +75,7 @@ export default function Initial({ setView }: InitialProps) {
               transition={{ duration: 0.3, delay: index * 0.1 }}
               whileHover={{ scale: 1.02 }}
               onClick={() => {
+                // Process this specific screenshot
                 window.electronAPI.triggerScreenshot();
                 setView("response");
               }}
@@ -76,7 +83,7 @@ export default function Initial({ setView }: InitialProps) {
               <img
                 src={screenshot.preview}
                 alt={`Screenshot ${index + 1}`}
-                className="w-full h-20 object-cover rounded-lg border border-border/50 shadow-sm"
+                className="w-full h-20 object-cover rounded-lg border border-border/50 shadow-sm" // FIXED: Reduced height from h-24 to h-20
               />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 rounded-lg flex items-center justify-center">
                 <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-medium">

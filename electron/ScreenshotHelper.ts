@@ -161,6 +161,9 @@ export class ScreenshotHelper {
     return [...this.extraScreenshotQueue]; // Return copy to prevent external mutation
   }
 
+  // ============================================================================
+  // BUG FIX: Safe Queue Clearing with Proper Async Handling
+  // ============================================================================
   public async clearQueues(): Promise<void> {
     if (this.isProcessingQueue) {
       console.warn("Queue processing in progress during clear, waiting...");
@@ -170,12 +173,15 @@ export class ScreenshotHelper {
     this.isProcessingQueue = true;
 
     try {
+      // Clear screenshotQueue
       const mainQueueFiles = [...this.screenshotQueue];
       this.screenshotQueue = [];
 
+      // Clear extraScreenshotQueue
       const extraQueueFiles = [...this.extraScreenshotQueue];
       this.extraScreenshotQueue = [];
 
+      // Delete files in parallel
       const deletePromises = [
         ...mainQueueFiles.map(filePath => this.safeUnlinkFile(filePath)),
         ...extraQueueFiles.map(filePath => this.safeUnlinkFile(filePath))
@@ -194,6 +200,8 @@ export class ScreenshotHelper {
   private async captureScreenshotMac(): Promise<Buffer> {
     return this.safeFileOperation(async () => {
       const tmpPath = path.join(app.getPath("temp"), `${uuidv4()}.png`);
+      // Use specific flags to capture only opaque windows and exclude transparent overlays
+      // -x: exclude shadows, -o: only capture windows that are onscreen
       await execFileAsync("screencapture", ["-x", "-o", tmpPath]);
       const buffer = await fs.promises.readFile(tmpPath);
       await fs.promises.unlink(tmpPath);
@@ -222,6 +230,9 @@ export class ScreenshotHelper {
     }, "Windows screenshot capture");
   }
 
+  // ============================================================================
+  // BUG FIX: Thread-Safe Screenshot Capture with Comprehensive Error Handling
+  // ============================================================================
   public async takeScreenshot(): Promise<string> {
     if (this.isCapturingScreenshot) {
       throw new Error("Screenshot capture already in progress");
@@ -230,10 +241,12 @@ export class ScreenshotHelper {
     this.isCapturingScreenshot = true;
 
     try {
+      // Small delay to ensure any UI updates are complete
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       console.log(`Taking screenshot for view: ${this.view}`);
 
+      // Get screenshot buffer using native methods with enhanced error handling
       let screenshotBuffer: Buffer;
       
       try {
@@ -249,14 +262,17 @@ export class ScreenshotHelper {
         throw new Error("Screenshot buffer is empty");
       }
 
+      // Determine target directory and queue based on current view
       const isExtraQueue = this.view !== "initial";
       const targetDir = isExtraQueue ? this.extraScreenshotDir : this.screenshotDir;
       const screenshotPath = path.join(targetDir, `${uuidv4()}.png`);
 
+      // Ensure target directory exists
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
 
+      // Save screenshot atomically
       try {
         await fs.promises.writeFile(screenshotPath, screenshotBuffer);
         console.log(`Screenshot saved: ${screenshotPath} (${screenshotBuffer.length} bytes)`);
@@ -265,10 +281,12 @@ export class ScreenshotHelper {
         throw new Error(`Failed to save screenshot: ${writeError}`);
       }
 
+      // Add to appropriate queue with atomic operation
       try {
         await this.addToQueue(screenshotPath, isExtraQueue);
         console.log(`Screenshot added to ${isExtraQueue ? 'extra' : 'main'} queue`);
       } catch (queueError) {
+        // If queue operation fails, clean up the file
         try {
           await this.safeUnlinkFile(screenshotPath);
         } catch (cleanupError) {
@@ -299,6 +317,7 @@ export class ScreenshotHelper {
       const extraQueueFiles = [...this.extraScreenshotQueue];
       this.extraScreenshotQueue = [];
 
+      // Delete files in parallel
       const deletePromises = extraQueueFiles.map(filePath => 
         this.safeUnlinkFile(filePath).catch(error => {
           console.error(`Failed to delete extra screenshot ${filePath}:`, error);
@@ -312,22 +331,29 @@ export class ScreenshotHelper {
     }
   }
 
+  // ============================================================================
+  // BUG FIX: Enhanced Cleanup with Comprehensive Error Handling
+  // ============================================================================
   public async cleanupAllScreenshots(): Promise<void> {
     console.log("Starting comprehensive screenshot cleanup...");
 
+    // Wait for any pending operations to complete
     if (this.pendingOperations.size > 0) {
       console.log(`Waiting for ${this.pendingOperations.size} pending operations to complete...`);
       await Promise.allSettled(Array.from(this.pendingOperations));
     }
 
+    // Wait for queue processing to complete
     if (this.isProcessingQueue || this.isCapturingScreenshot) {
       console.log("Waiting for screenshot operations to complete...");
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     try {
+      // Clear both screenshot queues first
       await this.clearQueues();
 
+      // Clean up all files in screenshot directories
       const cleanupPromises = [
         this.cleanupDirectory(this.screenshotDir, "main"),
         this.cleanupDirectory(this.extraScreenshotDir, "extra")
@@ -378,18 +404,24 @@ export class ScreenshotHelper {
     }
   }
 
+  // ============================================================================
+  // BUG FIX: Safe Destruction Method
+  // ============================================================================
   public async destroy(): Promise<void> {
     console.log("ScreenshotHelper destroy called");
     
+    // Set flags to prevent new operations
     this.isCapturingScreenshot = true;
     this.isProcessingQueue = true;
 
     try {
+      // Wait for pending operations
       if (this.pendingOperations.size > 0) {
         console.log("Waiting for pending operations during destroy...");
         await Promise.allSettled(Array.from(this.pendingOperations));
       }
 
+      // Clean up all screenshots
       await this.cleanupAllScreenshots();
       
       console.log("ScreenshotHelper destroyed successfully");
@@ -398,6 +430,9 @@ export class ScreenshotHelper {
     }
   }
 
+  // ============================================================================
+  // BUG FIX: Health Check Method for Debugging
+  // ============================================================================
   public getStatus(): {
     isCapturing: boolean;
     isProcessingQueue: boolean;

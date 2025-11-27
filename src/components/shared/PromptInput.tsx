@@ -27,6 +27,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
     };
   }, []);
 
+  // Focus input when component becomes visible
   useEffect(() => {
     if (isVisible && inputRef.current) {
       setTimeout(() => {
@@ -37,46 +38,59 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    
+    // In follow-up mode, allow empty submissions
     if (!onFollowUp && !value.trim()) return;
     
+    // Save the prompt (even if empty in follow-up mode)
     await window.electronAPI.setUserPrompt(value.trim());
     
+    // In follow-up mode, trigger follow-up processing
     if (onFollowUp) {
       try {
+        // Capture a screenshot then process follow-up
         await window.electronAPI.triggerScreenshot();
         await window.electronAPI.processFollowUp();
+        // Don't close the input in follow-up mode - let the parent component handle it
+        // onClose();
       } catch (error) {
         console.error("Error processing follow-up:", error);
       }
     } else {
+      // In normal mode, trigger screenshot and process
       if (mode === "normal") {
         try {
+          // Capture a screenshot then process
           await window.electronAPI.triggerScreenshot();
           await window.electronAPI.processScreenshots();
         } catch (error) {
           console.error("Error processing:", error);
         }
       }
+      // Close the input only in normal mode
       onClose();
     }
     
+    // Clear the value but don't close in follow-up mode
     setValue("");
   };
   
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Escape key closes the input
     if (e.key === 'Escape') {
       onClose();
       setValue("");
       return;
     }
     
+    // Plain Enter submits the form
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       onSubmit(e as any);
     }
   };
 
+  // Hide the prompt input completely if not visible
   if (!isVisible) {
     return null;
   }
@@ -95,6 +109,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         fontFamily: "'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
       }}
     >
+      {/* Input Icon */}
       <div className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
            style={{ background: 'rgba(255, 255, 255, 0.2)' }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
@@ -102,6 +117,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         </svg>
       </div>
 
+      {/* Mode Indicator */}
       <div className="flex-shrink-0 px-2 py-1 rounded-full text-xs font-medium"
            style={{
              background: mode === "stealth" ? 'rgba(168, 85, 247, 0.2)' : 'rgba(34, 197, 94, 0.2)',
@@ -111,6 +127,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         {mode}
       </div>
 
+      {/* Input Field */}
       <input
         ref={inputRef}
         type="text"
@@ -132,6 +149,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         }}
       />
 
+      {/* Submit Button */}
       <button
         type="submit"
         disabled={!onFollowUp && !value.trim()}
@@ -164,6 +182,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         </div>
       </button>
 
+      {/* Close Button */}
       <button 
         type="button"
         onClick={() => {
@@ -194,6 +213,7 @@ export default function PromptInput({ isVisible, onClose, onFollowUp = false }: 
         </svg>
       </button>
 
+      {/* CSS for placeholder styling */}
       <style>{`
         input::placeholder {
           color: rgba(255, 255, 255, 0.5);

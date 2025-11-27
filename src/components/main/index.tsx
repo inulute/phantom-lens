@@ -8,7 +8,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const MemoizedInitial = memo(Initial);
 const MemoizedResponse = memo(Response);
-  
+
+// ============================================================================
+// HOTFIX: Optimized Dimension Updates to Prevent Flickering and Conflicts
+// Only update width on 'initial' view; in 'response' view, send height-only updates to preserve fixed width
+// ============================================================================
 const VIEW_DIMENSIONS: Record<"initial" | "response" | "followup", { width: number; height: number }> = {
   initial: { width: 832, height: 260 },
   response: { width: 832, height: 660 },
@@ -26,6 +30,7 @@ function useDimensionUpdates(view: "initial" | "response" | "followup") {
   }, [view]);
 }
 
+// Animation variants for view transitions (reduced animation times)
 const pageVariants = {
   initial: {
     opacity: 0,
@@ -70,8 +75,11 @@ export default function Main() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<"initial" | "response" | "followup">("initial");
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isTransparent, setIsTransparent] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Always in stealth mode - no mode tracking needed
   
+  // Use the optimized dimension updates hook
   useDimensionUpdates(view);
 
   const setViewWithTransition = useCallback((newView: "initial" | "response" | "followup") => {
@@ -110,11 +118,32 @@ export default function Main() {
     return () => cleanupFunctions.forEach((fn) => fn());
   }, [setViewWithTransition, queryClient]);
 
+  // Apply body class for high-level view state only
   useEffect(() => {
     const body = document.body;
     body.classList.remove("view-initial", "view-response", "view-followup");
     body.classList.add(`view-${view}`);
   }, [view]);
+
+  // Handle transparency toggle
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onToggleTransparency?.(() => {
+      setIsTransparent((prev) => !prev);
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, []);
+
+  // Apply transparency class to body
+  useEffect(() => {
+    const body = document.body;
+    if (isTransparent) {
+      body.classList.add("transparent-mode");
+    } else {
+      body.classList.remove("transparent-mode");
+    }
+  }, [isTransparent]);
 
   return (
     <motion.div

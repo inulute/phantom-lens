@@ -10,13 +10,19 @@ export class ScreenCaptureHelper {
   private helperPath: string;
 
   constructor() {
+    // Path to the Swift helper binary
     this.helperPath = this.getSwiftHelperPath();
   }
 
+  /**
+   * Get the path to the Swift helper binary
+   */
   private getSwiftHelperPath(): string {
     if (app.isPackaged) {
+      // In packaged app, the helper should be in Resources
       return path.join(process.resourcesPath, "swift-helpers");
     } else {
+      // In development, build and use from swift-helpers directory
       const devPath = path.join(
         __dirname,
         "..",
@@ -37,6 +43,9 @@ export class ScreenCaptureHelper {
     }
   }
 
+  /**
+   * Start the Swift helper to exclude the main window from screen capture
+   */
   public async startScreenCaptureProtection(
     mainWindow: BrowserWindow
   ): Promise<boolean> {
@@ -51,6 +60,7 @@ export class ScreenCaptureHelper {
     }
 
     try {
+      // Get the process ID and window title
       const pid = process.pid;
       const windowTitle = mainWindow.getTitle() || "PhantomLens";
 
@@ -58,9 +68,11 @@ export class ScreenCaptureHelper {
         `Starting ScreenCaptureKit protection for PID: ${pid}, Window: "${windowTitle}"`
       );
 
+      // Check if helper binary exists
       if (!fs.existsSync(this.helperPath)) {
         console.error(`Swift helper binary not found at: ${this.helperPath}`);
 
+        // Try to build the helper in development
         if (!app.isPackaged) {
           await this.buildSwiftHelper();
           if (!fs.existsSync(this.helperPath)) {
@@ -71,6 +83,7 @@ export class ScreenCaptureHelper {
         }
       }
 
+      // Make sure the binary is executable
       try {
         fs.chmodSync(this.helperPath, "755");
       } catch (error) {
@@ -80,6 +93,7 @@ export class ScreenCaptureHelper {
         );
       }
 
+      // Spawn the Swift helper process
       this.swiftHelperProcess = spawn(
         this.helperPath,
         [pid.toString(), windowTitle],
@@ -121,8 +135,10 @@ export class ScreenCaptureHelper {
     console.log("Stopping ScreenCaptureKit protection...");
 
     try {
+      // Send SIGTERM to gracefully shutdown the helper
       this.swiftHelperProcess.kill("SIGTERM");
 
+      // Wait for graceful shutdown or force kill after timeout
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           if (this.swiftHelperProcess && !this.swiftHelperProcess.killed) {
@@ -150,10 +166,16 @@ export class ScreenCaptureHelper {
     }
   }
 
+  /**
+   * Check if the helper is currently running
+   */
   public isRunning(): boolean {
     return this.isHelperRunning;
   }
 
+  /**
+   * Build the Swift helper in development mode
+   */
   private async buildSwiftHelper(): Promise<void> {
     console.log("Building Swift helper...");
 
@@ -214,6 +236,9 @@ export class ScreenCaptureHelper {
     });
   }
 
+  /**
+   * Set up event handlers for the Swift helper process
+   */
   private setupHelperEventHandlers(): void {
     if (!this.swiftHelperProcess) return;
 
@@ -232,6 +257,7 @@ export class ScreenCaptureHelper {
       this.cleanup();
     });
 
+    // Log output for debugging - but only log important messages to avoid spam
     this.swiftHelperProcess.stdout?.on("data", (data) => {
       const output = data.toString().trim();
       if (
@@ -253,6 +279,9 @@ export class ScreenCaptureHelper {
     });
   }
 
+  /**
+   * Wait for the Swift helper to signal it's ready
+   */
   private async waitForHelperReady(
     timeoutMs: number = 15000
   ): Promise<boolean> {
@@ -274,6 +303,7 @@ export class ScreenCaptureHelper {
         }
       };
 
+      // Listen for "READY" message from the helper
       const readyHandler = (data: Buffer) => {
         const output = data.toString();
         console.log("[Swift Helper Output]", output.trim());
@@ -289,6 +319,7 @@ export class ScreenCaptureHelper {
         }
       };
 
+      // Handle process exit during startup (this should not happen if everything is working)
       const exitHandler = (code: number | null) => {
         console.error(`Swift helper exited during startup with code ${code}`);
         resolveOnce(false);
@@ -304,16 +335,23 @@ export class ScreenCaptureHelper {
     });
   }
 
+  /**
+   * Clean up process references
+   */
   private cleanup(): void {
     this.isHelperRunning = false;
     this.swiftHelperProcess = null;
   }
 
+  /**
+   * Request Screen Recording permission if not already granted
+   */
   public static async requestScreenRecordingPermission(): Promise<boolean> {
     if (process.platform !== "darwin") {
-      return true;
+      return true; // Not needed on other platforms
     }
 
+    // This is a basic check - the real permission request happens in the Swift helper
     console.log(
       "Screen Recording permission will be requested by Swift helper if needed"
     );

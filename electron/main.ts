@@ -8,20 +8,29 @@ import { incrementAppOpenCounter } from "./UsageCounter";
 import path from "path";
 
 let store: any = null;
+// Write lock to prevent concurrent writes to config file
 let configWriteLock = false;
 let configWriteQueue: Array<() => Promise<void>> = [];
 
+// ============================================================================
+// FIXED: Single, Stable Dimension Management System with Tooltip Fix
+// NO MORE BATCHING - Direct updates only
+// ============================================================================
 let isUpdatingDimensions = false;
 let lockedResponseWidth: number | null = null;
 let lastUpdateTime = 0;
 let lastDimensions = { width: 0, height: 0 };
 let dimensionUpdateTimeout: NodeJS.Timeout | null = null;
+let interactiveOverride = false;
 
 function logDimensionUpdate(source: string, width: number | string, height: number) {
   const timestamp = new Date().toISOString().slice(11, 23);
   console.log(`[FIXED-${timestamp}] Direct dimension update from ${source}: ${width} x ${height}`);
 }
 
+// ============================================================================
+// STABLE Window State Management
+// ============================================================================
 interface WindowState {
   bounds: Electron.Rectangle;
   visible: boolean;
@@ -45,15 +54,20 @@ function captureWindowState(): WindowState | null {
   }
 }
 
+// Helper function to show window without stealing focus
 function showWindowWithoutFocus(): void {
   if (!state.mainWindow || state.mainWindow.isDestroyed()) return;
   
   try {
+    // CRITICAL: Set window to non-focusable BEFORE showing to prevent focus stealing
     const shouldBeInert = state.mode === "stealth" || 
                          state.view === "response" || 
                          state.view === "followup";
+    const overrideActive = isInteractiveOverrideEnabled();
     
-    if (shouldBeInert) {
+    if (shouldBeInert && !overrideActive) {
+      // Set to non-focusable and skip taskbar MANY times BEFORE showing
+      // This prevents taskbar from appearing even for milliseconds
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
@@ -66,28 +80,39 @@ function showWindowWithoutFocus(): void {
       state.mainWindow.setIgnoreMouseEvents(true);
     }
     
+    // Use showInactive on macOS, or ensure focusable is false before showing on Windows
     if (process.platform === "darwin") {
       state.mainWindow.showInactive();
     } else {
-      state.mainWindow.setFocusable(false);
-      state.mainWindow.setFocusable(false);
+      // On Windows, ensure focusable is false before showing
+      if (!overrideActive) {
+        state.mainWindow.setFocusable(false);
+        state.mainWindow.setFocusable(false);
+      }
       state.mainWindow.show();
       
+      // CRITICAL: Immediately after show(), set skipTaskbar again synchronously
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
-      state.mainWindow.setFocusable(false);
-      state.mainWindow.setFocusable(false);
+      if (!overrideActive) {
+        state.mainWindow.setFocusable(false);
+        state.mainWindow.setFocusable(false);
+      }
       
+      // Immediately blur if it somehow got focus
       if (state.mainWindow.isFocused()) {
         state.mainWindow.blur();
       }
       
+      // Use process.nextTick to set skipTaskbar before event loop continues
       process.nextTick(() => {
         if (state.mainWindow && !state.mainWindow.isDestroyed()) {
           state.mainWindow.setSkipTaskbar(true);
           state.mainWindow.setSkipTaskbar(true);
-          state.mainWindow.setFocusable(false);
+          if (!overrideActive) {
+            state.mainWindow.setFocusable(false);
+          }
         }
       });
     }
@@ -161,6 +186,7 @@ async function initializeStore() {
         }
       },
       set: async (key: string, value: any) => {
+        // Queue the write operation to prevent concurrent writes
         return new Promise<boolean>((resolve) => {
           const writeOperation = async () => {
             try {
@@ -170,15 +196,20 @@ async function initializeStore() {
                 const data = await fs.readFile(configPath, "utf8");
                 config = JSON.parse(data || "{}");
               } catch (error) {
+                /* Ignore if file doesn't exist or is corrupted - will create new one */
                 console.warn(`Error reading config file, creating new one:`, error);
                 config = {};
               }
+              // Preserve existing structure (github, app keys) while updating the requested key
               config = { ...config, [key]: value };
+              // Write atomically using temp file
               const tempPath = configPath + '.tmp.' + Date.now();
               await fs.writeFile(tempPath, JSON.stringify(config, null, 2), "utf8");
+              // Atomic rename (works on Windows too)
               try {
                 await fs.rename(tempPath, configPath);
               } catch (renameError) {
+                // If rename fails (Windows), try copy + delete
                 await fs.copyFile(tempPath, configPath);
                 await fs.unlink(tempPath).catch(() => {});
               }
@@ -187,6 +218,7 @@ async function initializeStore() {
               console.error(`Error setting ${key} in config:`, error);
               resolve(false);
             } finally {
+              // Process next item in queue
               configWriteLock = false;
               if (configWriteQueue.length > 0) {
                 const nextOp = configWriteQueue.shift();
@@ -199,8 +231,10 @@ async function initializeStore() {
           };
 
           if (configWriteLock) {
+            // Queue the operation
             configWriteQueue.push(writeOperation);
           } else {
+            // Execute immediately
             configWriteLock = true;
             writeOperation();
           }
@@ -321,6 +355,7 @@ const state: State = {
   },
 };
 
+// Add interfaces for helper classes
 export interface IProcessingHelperDeps {
   getScreenshotHelper: () => ScreenshotHelper;
   getMainWindow: () => BrowserWindow | null;
@@ -383,6 +418,9 @@ export interface initializeIpcHandlerDeps {
   setHasFollowedUp: (value: boolean) => void;
   clearLockedResponseWidth: () => void;
   getLockedResponseWidth: () => number | null;
+  enableInteractiveOverride: () => void;
+  disableInteractiveOverride: () => void;
+  isInteractiveOverrideEnabled: () => boolean;
 }
 
 // ============================================================================
@@ -392,20 +430,31 @@ function applyInteractivityState(): void {
   if (!state.mainWindow || state.mainWindow.isDestroyed()) return;
 
   try {
+    if (interactiveOverride) {
+      state.mainWindow.setIgnoreMouseEvents(false);
+      state.mainWindow.setFocusable(true);
+      state.mainWindow.setSkipTaskbar(true);
+      state.mainWindow.setAlwaysOnTop(true, "floating");
+      return;
+    }
+
     const shouldBeInert = state.mode === "stealth" || 
                          state.view === "response" || 
                          state.view === "followup";
     
     if (shouldBeInert) {
+      // CRITICAL: Apply skipTaskbar FIRST and MULTIPLE times to prevent taskbar from appearing
+      // Windows can be slow to respond, so we call it multiple times aggressively
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setFocusable(false);
-      state.mainWindow.setFocusable(false);
+      state.mainWindow.setFocusable(false); // Double-call to ensure it sticks
       state.mainWindow.setIgnoreMouseEvents(true);
       // Blur immediately if window somehow got focus
       if (state.mainWindow.isFocused()) {
         state.mainWindow.blur();
       }
+      // One more skipTaskbar call after other operations
       state.mainWindow.setSkipTaskbar(true);
     } else {
       state.mainWindow.setIgnoreMouseEvents(false);
@@ -416,6 +465,32 @@ function applyInteractivityState(): void {
   } catch (error) {
     console.error("[Interactivity] Failed to apply state:", error);
   }
+}
+
+function enableInteractiveOverride(): void {
+  if (interactiveOverride) return;
+  interactiveOverride = true;
+  console.log("[Interactivity] Interactive override enabled");
+  try {
+    applyInteractivityState();
+  } catch (error) {
+    console.error("Failed to enable interactive override:", error);
+  }
+}
+
+function disableInteractiveOverride(): void {
+  if (!interactiveOverride) return;
+  interactiveOverride = false;
+  console.log("[Interactivity] Interactive override disabled");
+  try {
+    applyInteractivityState();
+  } catch (error) {
+    console.error("Failed to disable interactive override:", error);
+  }
+}
+
+function isInteractiveOverrideEnabled(): boolean {
+  return interactiveOverride;
 }
 
 // ============================================================================
@@ -736,10 +811,12 @@ function setWindowDimensions(width: number | string, height: number): void {
 
       console.log(`[FIXED] Applying stable bounds: ${JSON.stringify(newBounds)} (view: ${state.view})`);
       
+      // CRITICAL: For inert views, aggressively prevent taskbar BEFORE bounds change
       const shouldBeInert = state.mode === "stealth" || 
                            state.view === "response" || 
                            state.view === "followup";
-      if (shouldBeInert) {
+      const overrideActive = isInteractiveOverrideEnabled();
+      if (shouldBeInert && !overrideActive) {
         // Set skipTaskbar MANY times synchronously before bounds change
         state.mainWindow.setSkipTaskbar(true);
         state.mainWindow.setSkipTaskbar(true);
@@ -755,7 +832,8 @@ function setWindowDimensions(width: number | string, height: number): void {
       // Apply bounds with smooth animation
       state.mainWindow.setBounds(newBounds, true);
       
-      if (shouldBeInert) {
+      // CRITICAL: Immediately after setBounds, set skipTaskbar again synchronously
+      if (shouldBeInert && !overrideActive) {
         state.mainWindow.setSkipTaskbar(true);
         state.mainWindow.setSkipTaskbar(true);
         state.mainWindow.setSkipTaskbar(true);
@@ -765,7 +843,10 @@ function setWindowDimensions(width: number | string, height: number): void {
       
       applyInteractivityState();
       
-      if (shouldBeInert) {
+      // CRITICAL: For inert views, aggressively re-apply after bounds change
+      // This prevents taskbar from appearing during window resize
+      if (shouldBeInert && !overrideActive) {
+        // Use setImmediate for fastest possible execution
         setImmediate(() => {
           if (state.mainWindow && !state.mainWindow.isDestroyed()) {
             applyInteractivityState();
@@ -775,12 +856,13 @@ function setWindowDimensions(width: number | string, height: number): void {
           }
         });
         
+        // One more check with minimal delay
         setTimeout(() => {
           if (state.mainWindow && !state.mainWindow.isDestroyed()) {
             applyInteractivityState();
             state.mainWindow.setSkipTaskbar(true);
           }
-        }, 1);
+        }, 1); // 1ms - fastest possible
       }
 
       // Update tracking state
@@ -809,6 +891,9 @@ function getLockedResponseWidth(): number | null {
   return lockedResponseWidth;
 }
 
+// ============================================================================
+// FIXED: Improved View Management
+// ============================================================================
 function setView(view: "initial" | "response" | "followup"): void {
   if (state.view === view) return;
   
@@ -818,11 +903,16 @@ function setView(view: "initial" | "response" | "followup"): void {
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
+      // CRITICAL: Determine if new view should be inert BEFORE updating state
       const willBeInert = state.mode === "stealth" || 
                          view === "response" || 
                          view === "followup";
+      const overrideActive = isInteractiveOverrideEnabled();
       
-      if (willBeInert) {
+      // CRITICAL: Apply interactivity state IMMEDIATELY if transitioning to inert view
+      // This must happen BEFORE updating state to prevent taskbar from appearing
+      if (willBeInert && !overrideActive) {
+        // Aggressively prevent taskbar BEFORE state change - SYNCHRONOUSLY
         mainWindow.setSkipTaskbar(true);
         mainWindow.setSkipTaskbar(true);
         mainWindow.setSkipTaskbar(true);
@@ -849,7 +939,7 @@ function setView(view: "initial" | "response" | "followup"): void {
       
       // CRITICAL: For inert views, use setImmediate for faster execution (next event loop tick)
       // This is faster than setTimeout and catches Windows timing issues immediately
-      if (willBeInert) {
+      if (willBeInert && !overrideActive) {
         // Use setImmediate for near-instant execution (faster than setTimeout)
         setImmediate(() => {
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -857,7 +947,7 @@ function setView(view: "initial" | "response" | "followup"): void {
             mainWindow.setSkipTaskbar(true);
             mainWindow.setSkipTaskbar(true);
             mainWindow.setSkipTaskbar(true);
-            if (mainWindow.isFocused()) {
+            if (!overrideActive && mainWindow.isFocused()) {
               mainWindow.blur();
             }
           }
@@ -954,6 +1044,9 @@ function getView(): "initial" | "response" | "followup" {
   return state.view;
 }
 
+// ============================================================================
+// STABLE Window Creation
+// ============================================================================
 function createWindow(): BrowserWindow {
   if (state.mainWindow) {
     return state.mainWindow;
@@ -980,15 +1073,15 @@ function createWindow(): BrowserWindow {
       scrollBounce: false,
       backgroundThrottling: false,
     },
-    show: false,
+    show: false, // CRITICAL: Don't show immediately to prevent focus stealing
     frame: false,
     transparent: true,
     fullscreenable: false,
     hasShadow: false,
     backgroundColor: "#00000000",
-    focusable: false,
+    focusable: false, // CRITICAL: Start as non-focusable to prevent focus stealing
     skipTaskbar: true,
-    type: process.platform === "darwin" ? "panel" : "toolbar",
+    type: process.platform === "darwin" ? "panel" : "toolbar", // Use different types for better screenshot exclusion
     paintWhenInitiallyHidden: false,
     titleBarStyle: "hidden",
     enableLargerThanScreen: false,
@@ -1002,7 +1095,10 @@ function createWindow(): BrowserWindow {
 
   state.mainWindow = new BrowserWindow(windowSettings);
 
+  // CRITICAL: Set skipTaskbar IMMEDIATELY after window creation, before ANY other operations
+  // This must be the FIRST thing we do to prevent taskbar from appearing even for milliseconds
   if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+    // Synchronous calls - do this BEFORE anything else
     state.mainWindow.setSkipTaskbar(true);
     state.mainWindow.setSkipTaskbar(true);
     state.mainWindow.setSkipTaskbar(true);
@@ -1011,6 +1107,7 @@ function createWindow(): BrowserWindow {
     state.mainWindow.setFocusable(false);
     state.mainWindow.setFocusable(false);
     
+    // Use process.nextTick to set it even before the event loop continues
     process.nextTick(() => {
       if (state.mainWindow && !state.mainWindow.isDestroyed()) {
         state.mainWindow.setSkipTaskbar(true);
@@ -1020,6 +1117,7 @@ function createWindow(): BrowserWindow {
       }
     });
     
+    // Also use setImmediate for next event loop tick
     setImmediate(() => {
       if (state.mainWindow && !state.mainWindow.isDestroyed()) {
         state.mainWindow.setSkipTaskbar(true);
@@ -1029,8 +1127,10 @@ function createWindow(): BrowserWindow {
     });
   }
 
+  // CRITICAL: Apply interactivity state BEFORE showing window
   applyInteractivityState();
   
+  // Now show the window without stealing focus
   showWindowWithoutFocus();
   state.mainWindow.setOpacity(1);
   state.mainWindow.webContents.setFrameRate(30);
@@ -1063,6 +1163,8 @@ function createWindow(): BrowserWindow {
   state.mainWindow.setContentProtection(true);
   state.mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   
+  // CRITICAL: Re-apply interactivity state after setVisibleOnAllWorkspaces
+  // This ensures the window remains non-focusable and skips taskbar even in full screen mode
   applyInteractivityState();
 
   if (process.platform === "darwin") {
@@ -1070,16 +1172,25 @@ function createWindow(): BrowserWindow {
     state.mainWindow.setHiddenInMissionControl(true);
   }
 
+  // Add event listeners to maintain correct state when window visibility changes
   state.mainWindow.on("show", () => {
+    // Re-apply interactivity state when window is shown (including in full screen mode)
     applyInteractivityState();
   });
 
   state.mainWindow.on("focus", () => {
+    // CRITICAL: If window should be inert, immediately remove focus and re-apply state
+    // This prevents any focus stealing that might be detected by other apps
+    if (isInteractiveOverrideEnabled()) {
+      return;
+    }
     const shouldBeInert = state.mode === "stealth" || 
                          state.view === "response" || 
                          state.view === "followup";
     if (shouldBeInert && state.mainWindow && !state.mainWindow.isDestroyed()) {
+      // Immediately blur to prevent focus stealing
       state.mainWindow.blur();
+      // Aggressively re-apply state
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setSkipTaskbar(true);
       state.mainWindow.setFocusable(false);
@@ -1087,6 +1198,8 @@ function createWindow(): BrowserWindow {
       state.mainWindow.setIgnoreMouseEvents(true);
       applyInteractivityState();
     } else if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+      // Even for non-inert views, ensure we don't steal focus unnecessarily
+      // Only allow focus in initial view and normal mode
       if (state.view !== "initial" || state.mode !== "normal") {
         state.mainWindow.blur();
         applyInteractivityState();
@@ -1094,12 +1207,13 @@ function createWindow(): BrowserWindow {
     }
   });
   
+  // CRITICAL: Also prevent focus on window-created event
   state.mainWindow.once("ready-to-show", () => {
     if (state.mainWindow && !state.mainWindow.isDestroyed()) {
       const shouldBeInert = state.mode === "stealth" || 
                            state.view === "response" || 
                            state.view === "followup";
-      if (shouldBeInert) {
+      if (shouldBeInert && !isInteractiveOverrideEnabled()) {
         state.mainWindow.setFocusable(false);
         state.mainWindow.setFocusable(false);
         state.mainWindow.setSkipTaskbar(true);
@@ -1151,6 +1265,7 @@ function handleWindowClosed(): void {
     dimensionUpdateTimeout = null;
   }
   
+  // Reset all dimension-related state
   isUpdatingDimensions = false;
   lockedResponseWidth = null;
   lastUpdateTime = 0;
@@ -1191,6 +1306,7 @@ function toggleMainWindow(): void {
       state.mainWindow.setBounds(state.windowPosition);
     }
     
+    // Use helper function to show without stealing focus
     showWindowWithoutFocus();
     state.isWindowVisible = true;
   }
@@ -1228,16 +1344,23 @@ async function loadEnvVariables() {
 async function initializeApp() {
   try {
     await initializeStore();
+    // Always start in stealth mode
     state.mode = "stealth";
     try { Menu.setApplicationMenu(null); } catch {}
     await loadEnvVariables();
     
+    // Set default counter endpoint if not already configured
     const existingEndpoint = await getStoreValue("stats-server-endpoint");
     if (!existingEndpoint) {
-      await setStoreValue("stats-server-endpoint", "https://phantom-counter.inulute.workers.dev/");
-      console.log("[Main] Default counter endpoint configured");
+      // Remove trailing slash - can cause issues
+      const defaultEndpoint = "https://phantom-counter.inulute.workers.dev";
+      await setStoreValue("stats-server-endpoint", defaultEndpoint);
+      console.log("[Main] Default counter endpoint configured:", defaultEndpoint);
+    } else {
+      console.log("[Main] Using existing counter endpoint:", existingEndpoint);
     }
     
+    // Increment app open counter (non-blocking)
     incrementAppOpenCounter().catch((error) => {
       console.error("[Main] Failed to increment app open counter:", error);
     });
@@ -1246,7 +1369,7 @@ async function initializeApp() {
     
     initializeIpcHandlers({
       getMainWindow: () => state.mainWindow,
-      setWindowDimensions,
+      setWindowDimensions, // THIS IS THE ONLY DIMENSION FUNCTION WITH TOOLTIP FIX
       getScreenshotQueue: () => state.screenshotHelper?.getScreenshotQueue() || [],
       getExtraScreenshotQueue: () => state.screenshotHelper?.getExtraScreenshotQueue() || [],
       processingHelper: state.processingHelper,
@@ -1268,6 +1391,9 @@ async function initializeApp() {
       setHasFollowedUp: (value) => { state.hasFollowedUp = value; },
       clearLockedResponseWidth,
       getLockedResponseWidth,
+      enableInteractiveOverride,
+      disableInteractiveOverride,
+      isInteractiveOverrideEnabled,
     });
     
     createWindow();
@@ -1277,6 +1403,7 @@ async function initializeApp() {
       console.error("Global shortcut registration failed:", error);
     }
 
+    // Mode is always stealth - no need to send mode-changed event
   } catch (error) {
     console.error("Error initializing app:", error);
   }
@@ -1287,10 +1414,13 @@ async function setPersistedMode(mode: "normal"|"stealth"): Promise<void> {
 }
 
 export function getCurrentMode(): "normal" | "stealth" {
+  // Always return stealth mode
   return "stealth";
 }
 
 async function setMode(mode: "normal"|"stealth"): Promise<void> {
+  // Mode switching disabled - always stealth mode
+  // Keep function for backward compatibility but do nothing
   state.mode = "stealth";
   applyInteractivityState();
 }
@@ -1348,7 +1478,8 @@ function getExtraScreenshotQueue(): string[] {
 }
 
 function clearQueues(): void {
-  state.screenshotHelper?.clearQueues(); 
+  state.screenshotHelper?.clearQueues();
+  console.log("[FIXED] Clearing queues and resetting width lock");
   lockedResponseWidth = null;
   setView("initial");
 }
@@ -1357,6 +1488,7 @@ function cleanupAllFiles(): void {
   if (state.screenshotHelper) {
     state.screenshotHelper.cleanupAllScreenshots();
   }
+  console.log("All temporary files cleaned up.");
 }
 
 async function takeScreenshot(): Promise<string> {
@@ -1382,9 +1514,13 @@ async function getConfiguredModel(): Promise<string> {
 }
 
 
+// ============================================================================
+// APP LIFECYCLE
+// ============================================================================
 app.whenReady().then(initializeApp);
 
 app.on("before-quit", () => {
+  console.log("App is quitting. Cleaning up...");
   if (dimensionUpdateTimeout) {
     clearTimeout(dimensionUpdateTimeout);
     dimensionUpdateTimeout = null;

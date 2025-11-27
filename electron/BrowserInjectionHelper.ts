@@ -26,6 +26,7 @@ export class BrowserInjectionHelper {
   private dllPath: string = '';
   private injectorPath: string = '';
 
+  // Target browsers to inject into
   private readonly targetBrowsers = [
     'chrome.exe',
     'firefox.exe', 
@@ -50,6 +51,10 @@ export class BrowserInjectionHelper {
     this.injectorPath = path.join(resourcesPath, 'injector.exe');
   }
 
+  // ============================================================================
+  // AUTOMATIC STARTUP AND MONITORING
+  // ============================================================================
+
   public async startAutomaticInjection(): Promise<void> {
     if (this.isRunning) {
       console.log('[BrowserInjection] Already running');
@@ -59,12 +64,16 @@ export class BrowserInjectionHelper {
     console.log('[BrowserInjection] Starting automatic browser injection...');
     
     try {
+      // Ensure injection tools exist
       await this.ensureInjectionToolsExist();
       
+      // Apply self-timing bypass immediately
       this.applySelfTimingBypass();
       
+      // Inject into existing browsers
       await this.injectIntoExistingBrowsers();
       
+      // Start continuous monitoring
       this.startContinuousMonitoring();
       
       this.isRunning = true;
@@ -87,9 +96,14 @@ export class BrowserInjectionHelper {
     console.log('[BrowserInjection] Automatic injection stopped');
   }
 
+  // ============================================================================
+  // SELF-TIMING BYPASS (PROTECT THE ELECTRON APP ITSELF)
+  // ============================================================================
+
   private applySelfTimingBypass(): void {
     console.log('[BrowserInjection] Applying self-timing bypass...');
     
+    // Hook Date.now() for this Electron app
     const originalDateNow = Date.now;
     let callCount = 0;
     const OFFSET = 20000; // 20 seconds
@@ -106,15 +120,22 @@ export class BrowserInjectionHelper {
     console.log('[BrowserInjection] ✅ Self-timing bypass active');
   }
 
+  // ============================================================================
+  // INJECTION TOOLS MANAGEMENT
+  // ============================================================================
+
   private async ensureInjectionToolsExist(): Promise<void> {
     try {
+      // Check if tools directory exists
       const toolsDir = path.dirname(this.dllPath);
       await fs.mkdir(toolsDir, { recursive: true });
 
+      // Create timing bypass DLL if it doesn't exist
       if (!(await this.fileExists(this.dllPath))) {
         await this.createTimingBypassDLL();
       }
 
+      // Create injector executable if it doesn't exist
       if (!(await this.fileExists(this.injectorPath))) {
         await this.createInjectorExecutable();
       }
@@ -138,7 +159,11 @@ export class BrowserInjectionHelper {
   private async createTimingBypassDLL(): Promise<void> {
     console.log('[BrowserInjection] Creating timing bypass DLL...');
     
+    // In production, this would contain the actual DLL binary
+    // For now, we'll create a placeholder that indicates the DLL should be present
     const dllContent = Buffer.from([
+      // This would be the actual compiled DLL bytes
+      // For demo purposes, we're just creating a placeholder
     ]);
     
     await fs.writeFile(this.dllPath, dllContent);
@@ -148,16 +173,23 @@ export class BrowserInjectionHelper {
   private async createInjectorExecutable(): Promise<void> {
     console.log('[BrowserInjection] Creating injector executable...');
     
+    // In production, this would contain the actual injector binary
     const injectorContent = Buffer.from([
+      // This would be the actual compiled injector executable bytes
     ]);
     
     await fs.writeFile(this.injectorPath, injectorContent);
     console.log('[BrowserInjection] Injector executable created');
   }
 
+  // ============================================================================
+  // BROWSER PROCESS DETECTION AND MONITORING
+  // ============================================================================
+
   private startContinuousMonitoring(): void {
     console.log('[BrowserInjection] Starting continuous browser monitoring...');
     
+    // Monitor every 3 seconds for new browser processes
     this.monitorInterval = setInterval(async () => {
       if (this.isRunning) {
         await this.scanAndInjectNewBrowsers();
@@ -171,6 +203,7 @@ export class BrowserInjectionHelper {
         const processes = await this.findProcesses(browserName);
         
         for (const process of processes) {
+          // Check if we haven't already injected into this process
           if (!this.injectedProcesses.has(process.pid)) {
             console.log(`[BrowserInjection] 🆕 New ${browserName} detected (PID: ${process.pid})`);
             await this.injectIntoBrowserProcess(process.pid, browserName);
@@ -178,6 +211,7 @@ export class BrowserInjectionHelper {
         }
       }
       
+      // Clean up dead processes from our tracking
       await this.cleanupDeadProcesses();
       
     } catch (error) {
@@ -200,9 +234,14 @@ export class BrowserInjectionHelper {
           }
         }
       } catch (error) {
+        // Browser not running, continue to next
       }
     }
   }
+
+  // ============================================================================
+  // PROCESS DETECTION UTILITIES
+  // ============================================================================
 
   private async findProcesses(processName: string): Promise<Array<{pid: number, name: string}>> {
     return new Promise((resolve, reject) => {
@@ -212,14 +251,14 @@ export class BrowserInjectionHelper {
 
       exec(command, (error, stdout) => {
         if (error) {
-          resolve([]);
+          resolve([]); // No processes found
           return;
         }
 
         const processes: Array<{pid: number, name: string}> = [];
 
         if (process.platform === 'win32') {
-          const lines = stdout.split('\n').slice(1);
+          const lines = stdout.split('\n').slice(1); // Skip header
           
           for (const line of lines) {
             if (line.trim() && line.includes(processName)) {
@@ -236,6 +275,7 @@ export class BrowserInjectionHelper {
             }
           }
         } else {
+          // Linux/macOS
           const pids = stdout.trim().split('\n').filter(Boolean);
           for (const pidStr of pids) {
             const pid = parseInt(pidStr);
@@ -257,11 +297,13 @@ export class BrowserInjectionHelper {
     const deadPids: number[] = [];
     
     for (const [pid, process] of this.injectedProcesses) {
+      // Check if process is still running
       if (!(await this.isProcessRunning(pid))) {
         deadPids.push(pid);
       }
     }
     
+    // Remove dead processes from tracking
     for (const pid of deadPids) {
       this.injectedProcesses.delete(pid);
       console.log(`[BrowserInjection] 💀 Removed dead process from tracking (PID: ${pid})`);
@@ -270,6 +312,7 @@ export class BrowserInjectionHelper {
 
   private async isProcessRunning(pid: number): Promise<boolean> {
     try {
+      // On Windows, use tasklist to check if process exists
       if (process.platform === 'win32') {
         return new Promise((resolve) => {
           exec(`tasklist /FI "PID eq ${pid}" /FO CSV`, (error, stdout) => {
@@ -281,6 +324,7 @@ export class BrowserInjectionHelper {
           });
         });
       } else {
+        // On Unix-like systems, try to send signal 0
         process.kill(pid, 0);
         return true;
       }
@@ -289,15 +333,21 @@ export class BrowserInjectionHelper {
     }
   }
 
+  // ============================================================================
+  // BROWSER INJECTION EXECUTION
+  // ============================================================================
+
   private async injectIntoBrowserProcess(pid: number, browserName: string): Promise<InjectionResult> {
     const startTime = Date.now();
     
     try {
       console.log(`[BrowserInjection] 💉 Injecting into ${browserName} (PID: ${pid})...`);
       
+      // Execute the injection
       const injectionSuccess = await this.executeInjection(pid);
       
       if (injectionSuccess) {
+        // Track this process as injected
         this.injectedProcesses.set(pid, {
           name: browserName,
           pid: pid,
@@ -340,13 +390,15 @@ export class BrowserInjectionHelper {
 
   private async executeInjection(targetPID: number): Promise<boolean> {
     return new Promise((resolve) => {
+      // In a real implementation, this would execute the actual DLL injection
+      // For demo purposes, we'll simulate it
       
       const injector = spawn(this.injectorPath, [
         targetPID.toString(),
         this.dllPath
       ], {
         stdio: 'pipe',
-        windowsHide: true
+        windowsHide: true // Hide on Windows
       });
 
       let output = '';
@@ -373,6 +425,7 @@ export class BrowserInjectionHelper {
         resolve(false);
       });
 
+      // Timeout after 10 seconds
       setTimeout(() => {
         injector.kill();
         console.error('[BrowserInjection] Injection timeout');
@@ -380,6 +433,10 @@ export class BrowserInjectionHelper {
       }, 10000);
     });
   }
+
+  // ============================================================================
+  // STATUS AND DEBUGGING
+  // ============================================================================
 
   public getInjectionStatus(): {
     isRunning: boolean;
